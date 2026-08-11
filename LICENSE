@@ -1,0 +1,12 @@
+Creative Commons Attribution-NonCommercial 4.0 International Public License
+
+This project is licensed under CC BY-NC 4.0, required because parts of the
+codebase are adapted from forehand4d (github.com/ap229997/forehand4d), which
+is itself CC BY-NC 4.0.
+
+Full legal code: https://creativecommons.org/licenses/by-nc/4.0/legalcode
+Human-readable summary: https://creativecommons.org/licenses/by-nc/4.0/
+
+You are free to share and adapt this material for non-commercial purposes,
+with attribution, under the same license terms. See NOTICE.md for
+per-module provenance of adapted code.

@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ForeTrack4D — forecast vs. reality</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; background: #fff; }
+  h1 { margin-bottom: 0.2rem; }
+  .subtitle { color: #555; margin-top: 0; }
+  .note { background: #f6f6f6; border-left: 3px solid #999; padding: 0.75rem 1rem; margin: 1rem 0; font-size: 0.92rem; }
+  .thumbs { display: flex; gap: 0.75rem; flex-wrap: wrap; margin: 1rem 0; }
+  .thumb { cursor: pointer; border: 2px solid transparent; border-radius: 6px; overflow: hidden; width: 160px; }
+  .thumb.active { border-color: #2563eb; }
+  .thumb img { width: 100%; display: block; }
+  .thumb .label { font-size: 0.8rem; padding: 0.3rem 0.4rem; background: #f0f0f0; }
+  #viewer-wrap { position: relative; width: 100%; aspect-ratio: 4 / 3; background: #111; border-radius: 8px; overflow: hidden; }
+  #viewer-wrap canvas { display: block; width: 100%; height: 100%; }
+  .controls { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.5rem; flex-wrap: wrap; }
+  .controls button { padding: 0.4rem 0.8rem; cursor: pointer; }
+  .legend { display: flex; gap: 1rem; font-size: 0.85rem; align-items: center; }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 0.3rem; }
+  #confidence-flag { font-size: 0.85rem; padding: 0.4rem 0.6rem; border-radius: 4px; display: none; }
+  #confidence-flag.low { display: inline-block; background: #fff3cd; color: #7a5b00; }
+  table { border-collapse: collapse; margin: 0.75rem 0; font-size: 0.9rem; }
+  td, th { border: 1px solid #ddd; padding: 0.35rem 0.6rem; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  footer { margin-top: 3rem; font-size: 0.85rem; color: #666; border-top: 1px solid #ddd; padding-top: 1rem; }
+</style>
+</head>
+<body>
+
+<h1>ForeTrack4D</h1>
+<p class="subtitle">Forecast vs. reality — 3D object motion forecasting from a single image</p>
+
+<p>Given one frame of a hand-object interaction and a set of query points on the object, a
+conditional diffusion model predicts the object's future 3D motion — not pixels, not a video,
+just 3D point tracks. See the <a href="https://github.com/aneeshg5/foretrack4d">full repo</a> for details.</p>
+
+<h2>In-domain, the model works</h2>
+<p>On held-out data from datasets it trained on, the diffusion forecaster clearly beats both the
+"predict no motion" static baseline and a direct-regression baseline — and, for the first time
+in this project, beats the regressor outright:</p>
+<table>
+  <tr><th>DexYCB test (n=1200, never touched during training)</th><th>ADE (cm, lower better)</th></tr>
+  <tr><td>static baseline (no motion)</td><td>12.46</td></tr>
+  <tr><td>direct-regression baseline</td><td>7.85</td></tr>
+  <tr><td><strong>diffusion forecaster</strong></td><td><strong>7.52</strong></td></tr>
+</table>
+
+<h2>Explore real results</h2>
+<p>The scenes below are <strong>real, pre-computed results</strong> from the exact pipeline
+above, not a live model — rotate, pan, and play them to explore. The background image is the
+real conditioning frame the model saw, positioned in 3D using the actual camera geometry, so the
+points line up with the real hand/object. White points are what actually happened (tracked by
+<a href="https://tapip3d.github.io/">TAPIP3D</a> + MegaSaM from the full video); colored points
+are the model's own sampled forecasts, generated from that one frame with no access to the rest
+of the clip. Trails fade with time, so older positions are fainter.</p>
+
+<div class="note">
+Why isn't this a live "upload your own video" demo? MegaSaM (the 3D reconstruction this relies
+on) takes several real GPU-minutes per clip — genuinely interactive live inference isn't
+feasible without hosting infrastructure this project doesn't run. These are the actual,
+verified outputs of the same end-to-end pipeline, computed ahead of time — the same approach
+<a href="https://mega-sam.github.io/">MegaSaM's</a> own project page uses.
+</div>
+
+<div class="thumbs" id="thumbs"></div>
+
+<div id="viewer-wrap">
+  <canvas id="canvas"></canvas>
+</div>
+<div class="controls">
+  <button id="play-btn">Pause</button>
+  <input type="range" id="scrubber" min="0" max="100" value="0" style="flex:1">
+  <span id="frame-label">frame 0</span>
+</div>
+<div class="controls">
+  <div class="legend">
+    <span><span class="swatch" style="background:#fff"></span>observed reality</span>
+    <span><span class="swatch" style="background:#3cb4ff"></span>forecast sample 1</span>
+    <span><span class="swatch" style="background:#3cff78"></span>forecast sample 2</span>
+    <span><span class="swatch" style="background:#ff783c"></span>forecast sample 3</span>
+  </div>
+  <span id="confidence-flag"></span>
+</div>
+<p id="example-source" style="font-size:0.85rem;color:#666;"></p>
+
+<h2>The open problem: zero-shot generalization</h2>
+<p>The examples above are all in- or near-domain. The real test — and the thing this project is
+still actively working on — is generalization to a dataset the model never trained on in any
+way: <strong>EgoExo4D</strong> (25 held-out clips, zero training data, zero pseudo-labels, ever). No
+EgoExo4D video is shown here or anywhere in this demo (licensing — see below), but the numbers
+are reported in full, including where the model currently loses:</p>
+
+<table>
+  <tr><th></th><th>ADE (cm, lower better)</th><th>diversity (cm)</th></tr>
+  <tr><td>static baseline (no motion)</td><td>19.76</td><td>—</td></tr>
+  <tr><td>diffusion forecaster</td><td>23.83 <em>(loses)</em></td><td>0.24 <em>(collapsed)</em></td></tr>
+  <tr><td>diffusion + OOD confidence gate</td><td>20.87</td><td>—</td></tr>
+</table>
+<p style="font-size:0.9rem;color:#555;">Diffusion loses to the static "predict no motion"
+baseline on this genuinely unseen domain, and its sample diversity collapses under distribution
+shift — traced to the model's conditioning not meaningfully distinguishing out-of-distribution
+scenes, not a sampler bug. A cheap inference-time confidence gate recovers most, not all, of the
+gap.</p>
+
+<footer>
+<p><strong>Data provenance:</strong> HoloAssist clips (R012-7July-Nespresso,
+R175-10Oct-RAM) are used under
+<a href="https://cdla.dev/permissive-2-0/">CDLA-Permissive-2.0</a>, which permits sharing data
+with or without modification. TAPIP3D's own <code>pstudio</code> demo clip is used under
+TAPIP3D's Apache-2.0 license. No EgoExo4D raw data appears anywhere on this page or in this
+repo's demo assets, per that dataset's signed-access licensing terms.</p>
+<p>ForeTrack4D is a research project (CC BY-NC 4.0), built on
+<a href="https://github.com/ap229997/forehand4d">ForeHand4D</a>,
+<a href="https://github.com/zbw001/TAPIP3D">TAPIP3D</a>,
+<a href="https://github.com/GuyTevet/motion-diffusion-model">MDM</a>, and
+<a href="https://github.com/facebookresearch/sam2">SAM 2</a>. Not a product.</p>
+</footer>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+</script>
+<script type="module" src="viewer.js"></script>
+</body>
+</html>

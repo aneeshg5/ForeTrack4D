@@ -1,0 +1,15 @@
+defaults: mixed_stage1.yaml
+
+# N ablation: 32 query points instead of the default 64.
+# TrackFramesDataset.__getitem__ takes a prefix of the fixed FPS-ordered 64 stored points (see
+# its docstring) -- FPS's greedy ordering means a prefix is itself a reasonably well-spread
+# subset. N=128 is NOT supported without regenerating GT tracks with more query points (out of
+# scope for this ablation pass).
+model:
+  num_query_points: 32
+
+train:
+  ckpt_dir: /data01/aneeshg5/model_ckpts/foretrack4d/mixed_ablation_n32
+  # matches mixed_stage1's batch_size=32 -- unlike the query-cond/depth-scaling ablations, this
+  # one launched onto a fully free GPU, no contention forcing a reduction. Keeping batch size
+  # matched avoids repeating that earlier confound.

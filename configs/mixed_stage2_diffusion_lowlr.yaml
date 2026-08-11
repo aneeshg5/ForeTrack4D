@@ -1,0 +1,13 @@
+defaults: mixed_stage2.yaml
+
+# Diagnostic retry, diffusion only: mixed_stage2.yaml's lr=1e-5 caused immediate, monotonic
+# DexYCB ADE regression (11.37 -> 16.77 by epoch 10) while the regressor, sharing the identical
+# depth_scaled_l2 loss and data mix, stayed flat -- ruling out the data/loss-weighting as the
+# cause and pointing at diffusion-specific sensitivity to further training of an already
+# well-converged denoiser (Stage 1 val_loss 0.26), consistent with diffusion models' known
+# exposure-bias sensitivity in multi-step sampling (small weight changes compound over the
+# reverse trajectory more than the single-step training loss suggests). 10x lower lr as a
+# single-variable experiment against that diagnosis.
+train:
+  lr: 1.0e-6
+  ckpt_dir: /data01/aneeshg5/model_ckpts/foretrack4d/mixed_stage2_diffusion_lowlr

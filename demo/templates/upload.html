@@ -1,0 +1,20 @@
+<!doctype html>
+<title>ForeTrack4D — forecast vs. reality</title>
+<h1>ForeTrack4D</h1>
+<p>Upload a short, single-shot video of a hand manipulating one object. The forecaster
+predicts its future 3D motion from one frame; TAPIP3D tracks what actually happened, for
+comparison. This is not video generation — the output is 3D point tracks, not pixels.</p>
+
+<p>Requirements: single continuous shot (no cuts or zooms), hand and object clearly visible,
+under {{ max_duration_s }} seconds.</p>
+
+{% if error %}<p style="color: red">{{ error }}</p>{% endif %}
+
+<form action="/upload" method="post" enctype="multipart/form-data">
+  <p><input type="file" name="video" accept="video/*" required></p>
+  <p>
+    <label for="conditioning_frac">Conditioning frame (fraction of clip length):</label><br>
+    <input type="range" id="conditioning_frac" name="conditioning_frac" min="0" max="1" step="0.01" value="{{ default_frac }}">
+  </p>
+  <p><button type="submit">Run</button></p>
+</form>

@@ -1,0 +1,38 @@
+<!doctype html>
+<title>ForeTrack4D — job {{ job_id }}</title>
+{% if status.state in ["queued", "running"] %}
+<meta http-equiv="refresh" content="3">
+{% endif %}
+<h1>Job {{ job_id }}</h1>
+
+{% if status.state == "queued" %}
+  <p>Queued — waiting for a worker to pick this up.</p>
+{% elif status.state == "running" %}
+  <p>Running (MegaSaM+TAPIP3D tracking, then forecasting) — this can take a few minutes.</p>
+{% elif status.state == "rejected" %}
+  <p><strong>Rejected:</strong> {{ status.reason }}</p>
+  <p><a href="/">Try another video</a></p>
+{% elif status.state == "error" %}
+  <p><strong>Something went wrong:</strong> {{ status.reason }}</p>
+  <p><a href="/">Try another video</a></p>
+{% elif status.state == "done" %}
+  <p>Conditioning frame: {{ status.conditioning_frame }}</p>
+  {% if status.low_confidence %}
+  <p style="color: darkorange"><strong>Low confidence:</strong> the model's prediction barely
+  changed when its scene conditioning was disabled (disagreement {{ "%.2f"|format(status.disagreement_cm) }}cm) —
+  a signal this input may be unlike anything the model was trained on. Treat the forecast below
+  with that in mind, not as a confident prediction.</p>
+  {% endif %}
+  <p>White = observed reality (TAPIP3D). Colored = {{ status.ade_curve_per_sample|length }} sampled forecasts.
+  Both panels play the real video to the conditioning frame; then the left continues as reality
+  while the right freezes on that frame and animates only the predicted point tracks — no video
+  frames are synthesized.</p>
+  {% if status.video_path %}
+  <video controls autoplay muted loop style="max-width: 100%">
+    <source src="/jobs/{{ job_id }}/comparison.mp4" type="video/mp4">
+  </video>
+  {% endif %}
+  <p>Fainter points are further in the past of each trail.</p>
+  <img src="/jobs/{{ job_id }}/comparison.jpg" style="max-width: 100%">
+  <p><a href="/">Try another video</a></p>
+{% endif %}

@@ -1,0 +1,8 @@
+defaults: mixed_stage2_diffusion_lowlr.yaml
+
+# Diffusion Stage 2 retry on the expanded pseudo-label set (170 train / 43 val, up from 68/17),
+# keeping the validated lr=1e-6 fix (mixed_stage2_diffusion_lowlr.yaml -- lr=1e-5 destabilized
+# diffusion specifically). Data-only change otherwise. New ckpt_dir so the
+# previous (smaller-data) result stays available for comparison.
+train:
+  ckpt_dir: /data01/aneeshg5/model_ckpts/foretrack4d/mixed_stage2_diffusion_lowlr_expanded

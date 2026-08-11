@@ -1,0 +1,14 @@
+defaults: mixed_stage1.yaml
+
+# Depth-scaled loss ablation: plain masked-mean L2 instead
+# of TAPIP3D's 1/depth weighting (decision 6), isolating whether the depth-adaptive weighting
+# itself matters vs. training with any reasonable loss at all.
+diffusion:
+  depth_scaled_loss: false
+
+train:
+  # see mixed_ablation_no_query_cond.yaml's comment -- /data01, not the cramped /home mount.
+  ckpt_dir: /data01/aneeshg5/model_ckpts/foretrack4d/mixed_ablation_no_depth_scaling
+  # see mixed_ablation_no_query_cond.yaml's comment -- reduced from 32 due to cluster memory
+  # contention, a real confound against the mixed_stage1 baseline worth noting.
+  batch_size: 12

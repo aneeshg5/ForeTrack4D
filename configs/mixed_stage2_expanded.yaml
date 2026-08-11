@@ -1,0 +1,11 @@
+defaults: mixed_stage2.yaml
+
+# Regressor Stage 2 retry on the expanded pseudo-label set (170 train / 43 val, up from 68/17 --
+# 90 new diverse HoloAssist sessions across furniture assembly/disassembly, printer, RAM,
+# graphics card, belt, ATV, circuit breaker, coffee categories). Data-only
+# change: pseudo.gt_root is unchanged (same directory, just more files in it now), so this is
+# the identical training recipe as mixed_stage2.yaml, just re-run against more real data. New
+# ckpt_dir so the previous (smaller-data) Stage 2 checkpoints stay available for comparison,
+# not overwritten.
+train:
+  ckpt_dir: /data01/aneeshg5/model_ckpts/foretrack4d/mixed_stage2_expanded

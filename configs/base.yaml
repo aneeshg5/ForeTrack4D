@@ -1,0 +1,31 @@
+# shared defaults, overridden per-experiment config
+
+# latent_dim/num_layers/num_heads match forehand4d's paper spec exactly (arXiv:2510.06145,
+# "The denoiser in both F & L is implemented as a transformer encoder with 16 layers, 4 heads,
+# latent dimension 1024, dropout of 0.1").
+model:
+  num_query_points: 64
+  num_timesteps: 128
+  latent_dim: 1024
+  num_layers: 16
+  num_heads: 4
+  query_dropout_prob: 0.1
+  vit_init: hamer
+
+diffusion:
+  num_steps: 1000
+  schedule: cosine
+  predict: x0
+  depth_scaled_loss: true
+
+data:
+  normalize_translation: true
+
+train:
+  precision: bf16
+  grad_clip: 1.0
+  stage: 1
+  single_gpu_debug: false
+
+eval:
+  samples_per_input: 5

@@ -1,0 +1,7 @@
+defaults: mixed_stage1.yaml
+
+# Same as mixed_stage1.yaml but with the visibility-prediction head enabled (on by default in
+# train.py now, but kept as an explicit separate config + ckpt_dir here so it doesn't overwrite
+# mixed_stage1's existing reference checkpoints).
+train:
+  ckpt_dir: /data01/aneeshg5/model_ckpts/foretrack4d/mixed_stage1_visibility

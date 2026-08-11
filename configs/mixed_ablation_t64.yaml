@@ -1,0 +1,12 @@
+defaults: mixed_stage1.yaml
+
+# T ablation: 64-step forecast horizon instead of the
+# default 128. TrackFramesDataset already truncates/pads to self.t dynamically, no model
+# architecture change needed (unlike N, T isn't baked into any layer's dimensions -- see
+# TrackHead/TrackDenoiser, neither hardcodes T).
+model:
+  num_timesteps: 64
+
+train:
+  ckpt_dir: /data01/aneeshg5/model_ckpts/foretrack4d/mixed_ablation_t64
+  # matches mixed_stage1's batch_size=32 -- see mixed_ablation_n32.yaml's comment.

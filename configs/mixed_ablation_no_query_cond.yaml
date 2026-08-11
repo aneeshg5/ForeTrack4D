@@ -1,0 +1,22 @@
+defaults: mixed_stage1.yaml
+
+# Query-conditioning ablation:
+# image-only conditioning tokens zeroed unconditionally in both train and eval (see
+# QueryTokenizer.disable_query_cond's docstring) -- query_xyz_t0 still reaches TrackHead
+# directly, so this isolates the per-query-point image+Fourier conditioning specifically.
+# If this ablation's ADE lands close to static's baseline, that confirms the conditioning
+# design is load-bearing; if it's still competitive with the full model, that's a real finding
+# worth investigating before trusting the architecture.
+model:
+  disable_query_cond: true
+
+train:
+  # /data01, not the repo-relative downloads/ (which resolves to the cramped, cluster-shared
+  # /home mount) -- /home filled to 100% mid-run and killed this job once already (unhandled
+  # exception on a truncated torch.save).
+  ckpt_dir: /data01/aneeshg5/model_ckpts/foretrack4d/mixed_ablation_no_query_cond
+  # reduced from mixed_stage1's 32 -- launched on a heavily-shared cluster node where every GPU
+  # already has 27-39GB claimed by other users' jobs; 32 OOM'd twice even on the GPUs with the
+  # most free headroom (17.5GB, right at the edge with fragmentation). This is a real confound
+  # against the mixed_stage1 baseline's batch size, worth noting when reading the comparison.
+  batch_size: 12

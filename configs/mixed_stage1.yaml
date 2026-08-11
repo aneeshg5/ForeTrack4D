@@ -1,0 +1,40 @@
+defaults: base.yaml
+
+# Mixed-dataset training on all three GT datasets, forehand4d's "stage 1" in the clean-GT
+# sense. Pseudo-labeled data (stage 2) is a separate config.
+dataset: dexycb+arctic_ego+h2o
+
+data:
+  datasets:
+    dexycb:
+      gt_root: /data01/aneeshg5/gt_tracks/dexycb
+      transl_stats: downloads/stats/dexycb_transl_stats.json
+    arctic_ego:
+      gt_root: /data01/aneeshg5/gt_tracks/arctic
+      transl_stats: downloads/stats/arctic_transl_stats.json
+    h2o:
+      gt_root: /data01/aneeshg5/gt_tracks/h2o
+      transl_stats: downloads/stats/h2o_transl_stats.json
+
+train:
+  stage: 1
+  batch_size: 32
+  epochs: 100
+  lr: 1.0e-5
+  warmup_frac: 0.05
+  noise_factor: 0.4
+  scale_factor: 0.25
+  offset_reg_weight: 0.01
+  single_gpu_debug: false
+  log_every: 20
+  val_every_epoch: 5
+  # /data01, not the repo-relative downloads/ (cramped, cluster-shared /home mount -- filled to
+  # 100% during earlier ablation runs and killed a job).
+  ckpt_dir: /data01/aneeshg5/model_ckpts/foretrack4d/mixed_stage1
+
+train_debug:
+  batch_size: 4
+  epochs: 1
+  single_gpu_debug: true
+  log_every: 1
+  val_every_epoch: 1

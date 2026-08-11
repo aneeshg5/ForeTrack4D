@@ -1,0 +1,44 @@
+[project]
+name = "foretrack4d"
+version = "0.1.0"
+description = "3D object motion forecasting from a single image"
+requires-python = ">=3.10,<3.11"
+readme = "README.md"
+license = { text = "CC-BY-NC-4.0" }
+dependencies = [
+    "torch==2.4.1",
+    "numpy",
+    "einops",
+    "pyyaml",
+    "opencv-python",
+    "trimesh",
+    "pyrender",
+    "tqdm",
+    "timm",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+dev = ["ruff", "pytest"]
+# sam2 itself is installed from the third_party/sam2 clone (scripts/setup_third_party.sh), not
+# listed here, since it has no stable PyPI release to pin against.
+labeling = ["mediapipe"]
+demo = ["flask"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

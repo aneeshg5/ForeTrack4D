@@ -1,0 +1,10 @@
+defaults: mixed_stage1_visibility.yaml
+
+# Retry of mixed_stage1_visibility.yaml's diffusion run, which destabilized badly at the shared
+# alpha_vis=3.0. Regressor didn't have this
+# problem (ADE 10.31, a real improvement), so its checkpoint from that run is kept as-is; this
+# config only needs to be used with --model_type diffusion. 10x smaller alpha_vis for diffusion
+# specifically, via the new alpha_vis_<model_type> override in train.py.
+train:
+  alpha_vis_diffusion: 0.3
+  ckpt_dir: /data01/aneeshg5/model_ckpts/foretrack4d/mixed_stage1_visibility_v2

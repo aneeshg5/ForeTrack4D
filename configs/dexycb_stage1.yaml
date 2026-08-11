@@ -1,0 +1,51 @@
+defaults: base.yaml
+
+dataset: dexycb
+
+data:
+  motion_split: forehand4d
+  datasets:
+    dexycb:
+      gt_root: /data01/aneeshg5/gt_tracks/dexycb
+      transl_stats: downloads/stats/dexycb_transl_stats.json
+
+train:
+  stage: 1
+  batch_size: 32
+  epochs: 100
+  # 1e-5 matches forehand4d's own actual default (src/parsers/configs/mdm.py) for jointly
+  # fine-tuning the same ViT-H backbone; our first attempt used 1e-4 (10x higher, our own
+  # guess, not verified against their config) and plateaued around epoch 20-50 on both model
+  # types without beating the baselines.
+  lr: 1.0e-5
+  warmup_frac: 0.05
+  # forehand4d's own augm_params()/rgb_processing() (common/data_utils.py) use these exact
+  # values; disabled by default in their repo (config keys commented out) but the paper states
+  # they were used for the forecasting model ("pixel-level noise & image scaling for
+  # forecasting") -- wired as explicit flags here. rot_factor omitted: their own comment
+  # scopes it to "the 2D traj -> MANO params model" (their lifting model), which we don't have,
+  # and applying it here would require rotating our 3D world-frame GT tracks to stay consistent
+  # with the rotated image, a bigger change with no direct precedent in their forecasting setup.
+  noise_factor: 0.4
+  scale_factor: 0.25
+  # small penalty on |pred - query_xyz_t0|^2 (motion magnitude), added after diagnosing a real,
+  # train-set-present (not a generalization gap) ~60% systematic overshoot of the dataset's true
+  # mean displacement direction (attempt 5's regressor: predicted avg displacement 17.1cm vs
+  # true 10.7cm, same direction, consistent on both train and test),
+  # "closing the last bit of the ADE gap". 0.01 is a starting point: same order of magnitude as
+  # depth_scaled_l2's own late-training value (~0.06-0.7), small enough it shouldn't suppress
+  # genuine motion signal, large enough to meaningfully compete against the demonstrated
+  # overshoot tendency.
+  offset_reg_weight: 0.01
+  single_gpu_debug: false
+  log_every: 20
+  val_every_epoch: 5
+  # /data01, not the repo-relative downloads/ -- see mixed_stage1.yaml's comment.
+  ckpt_dir: /data01/aneeshg5/model_ckpts/foretrack4d/dexycb_stage1
+
+train_debug:
+  batch_size: 4
+  epochs: 1
+  single_gpu_debug: true
+  log_every: 1
+  val_every_epoch: 1

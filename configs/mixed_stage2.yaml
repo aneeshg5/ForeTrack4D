@@ -1,0 +1,55 @@
+defaults: base.yaml
+
+# Stage 2: finetune jointly on GT + TAPIP3D-imputed
+# pseudo-labels (source='pseudo' npz, written by scripts/impute_labels.py), starting from the
+# Stage 1 checkpoint, not from scratch -- ForeHand4D found training on noisy imputed labels
+# from scratch is unstable, so this stage never starts cold (init_ckpt_<model_type> below).
+dataset: dexycb+arctic_ego+h2o+pseudo
+
+data:
+  datasets:
+    dexycb:
+      gt_root: /data01/aneeshg5/gt_tracks/dexycb
+      transl_stats: downloads/stats/dexycb_transl_stats.json
+    arctic_ego:
+      gt_root: /data01/aneeshg5/gt_tracks/arctic
+      transl_stats: downloads/stats/arctic_transl_stats.json
+    h2o:
+      gt_root: /data01/aneeshg5/gt_tracks/h2o
+      transl_stats: downloads/stats/h2o_transl_stats.json
+    pseudo:
+      # real path: scripts/impute_labels.py (via labeling/impute.py's process_clip) writes
+      # accepted clips under {holoassist_root's sibling}/pseudo_labels/{train,val}/*.npz, not
+      # the pseudo_tracks/holoassist placeholder this pointed at before any real data existed.
+      # 85 real clips labeled (18 HoloAssist sessions, native-sensor pipeline):
+      # 68 train / 17 val, held out by file (every 5th, deterministic).
+      gt_root: /data01/aneeshg5/pseudo_labels
+      transl_stats: downloads/stats/pseudo_holoassist_transl_stats.json
+
+train:
+  stage: 2
+  batch_size: 32
+  # ~20 epochs -- far shorter than Stage 1's 100, this is a
+  # finetune from a converged checkpoint, not training from scratch.
+  epochs: 20
+  lr: 1.0e-5
+  warmup_frac: 0.05
+  noise_factor: 0.4
+  scale_factor: 0.25
+  offset_reg_weight: 0.01
+  single_gpu_debug: false
+  log_every: 20
+  val_every_epoch: 1
+  # reference checkpoints from mixed_stage1_visibility(_v2).yaml's runs:
+  # regressor epoch10 (ADE 10.31), diffusion epoch40 (ADE 10.17) -- both post visibility-head
+  # fix, both beat or come within ~4% of the pre-visibility Stage 1 baseline.
+  init_ckpt_diffusion: /data01/aneeshg5/model_ckpts/foretrack4d/mixed_stage1_visibility_v2/diffusion/epoch40.pt
+  init_ckpt_regressor: /data01/aneeshg5/model_ckpts/foretrack4d/mixed_stage1_visibility/regressor/epoch10.pt
+  ckpt_dir: /data01/aneeshg5/model_ckpts/foretrack4d/mixed_stage2
+
+train_debug:
+  batch_size: 4
+  epochs: 1
+  single_gpu_debug: true
+  log_every: 1
+  val_every_epoch: 1

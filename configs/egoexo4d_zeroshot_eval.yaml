@@ -1,0 +1,17 @@
+defaults: base.yaml
+
+# EgoExo4D zero-shot eval. Never used for training -- eval.py only,
+# --eval_dataset egoexo4d_zeroshot --split
+# zeroshot. 26 real clips (5 diverse takes: cooking, bike repair, covid test), "observed" tracks
+# from our own native Aria depth pipeline (undistortion + trajectory + semidense point cloud
+# reprojection) + TAPIP3D, used as the eval reference the same way the demo uses
+# TAPIP3D-observed tracks as ground truth, not training labels. transl_stats: HoloAssist's,
+# not EgoExo4D's own -- using its own stats would be test-time adaptation a blind deployment
+# wouldn't have; HoloAssist is the closest domain the model saw during Stage 2.
+dataset: egoexo4d_zeroshot
+
+data:
+  datasets:
+    egoexo4d_zeroshot:
+      gt_root: /data01/aneeshg5/egoexo4d_tracks
+      transl_stats: downloads/stats/pseudo_holoassist_transl_stats.json

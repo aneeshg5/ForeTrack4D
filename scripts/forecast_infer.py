@@ -12,6 +12,11 @@ import numpy as np
 import torch
 import yaml
 
+# some cluster nodes fail cuDNN handle creation while plain CUDA kernels work; the only conv
+# here is the ViT patch embed, so the fallback costs nothing measurable
+if os.environ.get("FORETRACK_DISABLE_CUDNN"):
+    torch.backends.cudnn.enabled = False
+
 from foretrack.data.dexycb import load_transl_stats
 from foretrack.data.transforms import denormalize_translation, normalize_translation
 from foretrack.eval.ood_gate import DISAGREEMENT_THRESHOLD_CM, conditioned_disagreement

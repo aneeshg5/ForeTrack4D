@@ -1,8 +1,9 @@
 # Composite forecast-vs-reality demo video. Layout: 2x2 panels (observed video, frozen-frame
-# forecast, orbiting 3D world-space view, live ADE-vs-horizon chart) over a full-width timeline
-# bar. Both track panels play the real video in sync to the conditioning frame; after it, the
-# observed panel keeps playing real footage while the forecast panel freezes on the conditioning
-# frame and animates predicted trajectories only -- no pixel is ever synthesized.
+# forecast, orbiting 3D world-space view, live error-vs-horizon chart) with a legend strip and
+# a full-width timeline bar. Both track panels play the real video in sync to the conditioning
+# frame; after it, the observed panel keeps playing real footage while the forecast panel
+# freezes on the conditioning frame and animates predicted trajectories only -- no pixel is
+# ever synthesized.
 
 import cv2
 import numpy as np
@@ -17,10 +18,12 @@ SAMPLE_COLORS = [
     (0, 94, 213),     # vermillion
     (167, 121, 204),  # reddish purple
 ]
-OBSERVED_COLOR = (200, 200, 200)
+OBSERVED_COLOR = (220, 220, 220)
+QUERY_COLOR = (80, 220, 255)  # yellow, marks the points being forecast
 STATIC_COLOR = (128, 128, 128)
 BG = (24, 22, 20)
 TIMELINE_H = 44
+LEGEND_H = 30
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 
@@ -32,22 +35,35 @@ def _put(img, text, org, scale=0.45, color=(235, 235, 235), thick=1):
     cv2.putText(img, text, org, FONT, scale, color, thick, cv2.LINE_AA)
 
 
-def _trail(img, uv, k, color, trail_len, thickness=2, radius=3):
+def _trail(img, uv, k, color, trail_len, radius=3):
     """comet trail: positions at timesteps (k - trail_len, k], newest bold. uv: (T, M, 2)."""
     t_hi = min(k, uv.shape[0] - 1)
     for t in range(max(0, t_hi - trail_len + 1), t_hi + 1):
         age = t_hi - t
         alpha = 1.0 - 0.8 * (age / max(trail_len - 1, 1))
-        r = radius + 1 if age == 0 else radius - 1
+        r = radius + 1 if age == 0 else max(radius - 1, 1)
         overlay = img.copy()
         drew = False
         for x, y in uv[t]:
             if np.isnan(x) or np.isnan(y):
                 continue
-            cv2.circle(overlay, (int(round(x)), int(round(y))), max(r, 1), color, -1 if age == 0 else thickness - 1)
+            cv2.circle(overlay, (int(round(x)), int(round(y))), r, color, -1)
             drew = True
         if drew:
             cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, dst=img)
+
+
+def _mark_queries(img, uv0, label=None):
+    """rings around the query points at their t=0 positions -- identifies WHAT is forecast."""
+    for x, y in uv0:
+        if np.isnan(x) or np.isnan(y):
+            continue
+        cv2.circle(img, (int(round(x)), int(round(y))), 6, QUERY_COLOR, 1, cv2.LINE_AA)
+    if label:
+        good = uv0[~np.isnan(uv0).any(axis=1)]
+        if len(good):
+            cx, cy = good.mean(axis=0)
+            _put(img, label, (max(int(cx) - 100, 6), max(int(cy) - 18, 16)), 0.44, QUERY_COLOR)
 
 
 def _select_display_points(query_xyz: np.ndarray, n_show: int) -> np.ndarray:
@@ -65,7 +81,7 @@ def _select_display_points(query_xyz: np.ndarray, n_show: int) -> np.ndarray:
 
 
 class _Orbit3D:
-    """world-space viewport: orthographic-ish pinhole orbiting the t=0 centroid."""
+    """world-space viewport: pinhole-free orbit projection around the t=0 centroid."""
 
     def __init__(self, pts_for_bounds: np.ndarray, w: int, h: int):
         flat = pts_for_bounds.reshape(-1, 3)
@@ -75,7 +91,6 @@ class _Orbit3D:
         self.w, self.h = w, h
 
     def project(self, pts: np.ndarray, azim: float) -> np.ndarray:
-        """pts: (..., 3) world -> (..., 2) viewport pixels. Fixed elevation, azimuth in radians."""
         elev = 0.42
         ca, sa, ce, se = np.cos(azim), np.sin(azim), np.cos(elev), np.sin(elev)
         p = pts - self.center
@@ -83,9 +98,7 @@ class _Orbit3D:
         z = -p[..., 0] * sa + p[..., 2] * ca
         y = p[..., 1] * ce - z * se
         scale = 0.42 * min(self.w, self.h) / self.radius
-        u = x * scale + self.w / 2
-        v = y * scale + self.h / 2
-        return np.stack([u, v], axis=-1)
+        return np.stack([x * scale + self.w / 2, y * scale + self.h / 2], axis=-1)
 
     def draw_ground(self, img: np.ndarray, azim: float) -> None:
         ext = self.radius
@@ -97,18 +110,18 @@ class _Orbit3D:
             c = np.array([[self.center[0] - ext, ys, self.center[2] + i * ext / n]])
             d = np.array([[self.center[0] + ext, ys, self.center[2] + i * ext / n]])
             for p0, p1 in ((a, b), (c, d)):
-                u0 = self.project(p0 - self.center + self.center, azim)[0]
+                u0 = self.project(p0, azim)[0]
                 u1 = self.project(p1, azim)[0]
                 cv2.line(img, (int(u0[0]), int(u0[1])), (int(u1[0]), int(u1[1])), (46, 44, 42), 1, cv2.LINE_AA)
 
 
 def _chart_panel(w, h, curves, static_curve, k, fps, y_max):
-    """live ADE-vs-horizon chart, drawn up to timestep k. curves: list of (T,) cm arrays."""
     img = np.full((h, w, 3), BG, np.uint8)
-    ml, mr, mt, mb = 52, 14, 30, 34
+    ml, mr, mt, mb = 52, 14, 46, 34
     pw, ph = w - ml - mr, h - mt - mb
     t_max = max(len(static_curve), max(len(c) for c in curves))
-    _put(img, "forecast error vs horizon (cm, all 64 points)", (ml, 19), 0.42)
+    _put(img, "SCOREBOARD: how far off is each predicted future? (cm, lower = better)", (ml, 20), 0.44)
+    _put(img, "measured against where the object's points actually went", (ml, 38), 0.38, (160, 160, 160))
     for frac in (0.0, 0.5, 1.0):
         y = int(mt + ph * (1 - frac))
         cv2.line(img, (ml, y), (ml + pw, y), (50, 48, 46), 1)
@@ -127,30 +140,51 @@ def _chart_panel(w, h, curves, static_curve, k, fps, y_max):
             cv2.line(img, pts[i - 1], pts[i], color, 1, cv2.LINE_AA)
         if pts:
             cv2.circle(img, pts[-1], 3, color, -1)
+        return pts[-1] if pts else None
 
-    draw_curve(static_curve, STATIC_COLOR, dashed=True)
+    end = draw_curve(static_curve, STATIC_COLOR, dashed=True)
+    if end and k > 0.25 * t_max:
+        x = int(np.clip(end[0] - 150, ml + 4, w - 235))
+        _put(img, "baseline: 'object never moves'", (x, max(end[1] - 8, 52)), 0.38, STATIC_COLOR)
     for i, c in enumerate(curves):
         draw_curve(c, SAMPLE_COLORS[i % len(SAMPLE_COLORS)])
-    _put(img, "gray dashed = 'object never moves' baseline", (ml + 40, h - 12), 0.38, (150, 150, 150))
+    return img
+
+
+def _legend(w, s_count):
+    img = np.full((LEGEND_H, w, 3), (16, 15, 14), np.uint8)
+    x = 14
+    cv2.circle(img, (x, LEGEND_H // 2), 5, OBSERVED_COLOR, -1)
+    _put(img, "what actually happened", (x + 12, LEGEND_H // 2 + 5), 0.42)
+    x += 200
+    cv2.circle(img, (x, LEGEND_H // 2), 6, QUERY_COLOR, 1)
+    _put(img, "points being forecast", (x + 12, LEGEND_H // 2 + 5), 0.42)
+    x += 195
+    _put(img, "5 predicted futures:", (x, LEGEND_H // 2 + 5), 0.42)
+    x += 160
+    for i in range(s_count):
+        cv2.circle(img, (x, LEGEND_H // 2), 5, SAMPLE_COLORS[i % len(SAMPLE_COLORS)], -1)
+        _put(img, f"#{i + 1}", (x + 9, LEGEND_H // 2 + 5), 0.42, (200, 200, 200))
+        x += 52
     return img
 
 
 def _timeline(w, k_global, cond_idx, total, fps):
     img = np.full((TIMELINE_H, w, 3), BG, np.uint8)
-    ml, mr = 14, 150
+    ml, mr = 14, 210
     bw = w - ml - mr
     y = TIMELINE_H // 2
     cv2.line(img, (ml, y), (ml + bw, y), (70, 68, 66), 3)
     x_now = int(ml + bw * min(k_global, total - 1) / max(total - 1, 1))
     x_cond = int(ml + bw * cond_idx / max(total - 1, 1))
     cv2.line(img, (ml, y), (min(x_now, ml + bw), y), (210, 210, 210), 3)
-    for xh in range(x_cond, ml + bw, 8):  # hatched future-of-conditioning region
+    for xh in range(x_cond, ml + bw, 8):
         cv2.line(img, (xh, y - 5), (xh + 4, y + 5), (95, 93, 90), 1)
     cv2.line(img, (x_cond, y - 9), (x_cond, y + 9), SAMPLE_COLORS[0], 2)
-    _put(img, "forecast starts", (max(x_cond - 44, ml), y - 12), 0.38, SAMPLE_COLORS[0])
+    _put(img, "prediction made here", (max(x_cond - 60, ml), y - 12), 0.38, SAMPLE_COLORS[0])
     t_rel = (k_global - cond_idx) / fps
-    label = f"t = +{t_rel:.1f}s" if k_global >= cond_idx else f"t = {t_rel:.1f}s"
-    _put(img, label, (ml + bw + 12, y + 5), 0.5)
+    label = f"+{t_rel:.1f}s after prediction" if k_global >= cond_idx else "before prediction"
+    _put(img, label, (ml + bw + 12, y + 5), 0.46)
     return img
 
 
@@ -166,6 +200,7 @@ def render_demo_video(
     trail_len: int = 10,
     hold_s: float = 3.0,
     playback_fps: float = 15.0,
+    max_horizon: int = None,
 ) -> str:
     """frames: (F, H, W, 3) uint8 RGB. observed_tracks: (T_obs, N, 3) metric, from cond_idx on.
     forecast_samples: (S, T, N, 3). Writes the composite mp4 and returns its path. Metrics use
@@ -173,14 +208,15 @@ def render_demo_video(
     h, w = frames.shape[1:3]
     s_count, t_fc = forecast_samples.shape[0], forecast_samples.shape[1]
     t_obs = observed_tracks.shape[0]
-    horizon = max(t_obs, t_fc)
+    # rolling out past observed reality leaves a dead left panel; cap unless told otherwise
+    horizon = max(t_obs, t_fc) if max_horizon is None else min(max(t_obs, t_fc), max_horizon)
     total = cond_idx + horizon
 
     show = _select_display_points(observed_tracks[0], n_show)
     observed_uv = project_points(observed_tracks[:, show], intrinsics)
     forecast_uv = [project_points(forecast_samples[s][:, show], intrinsics) for s in range(s_count)]
+    query_uv0 = observed_uv[0]
 
-    # error curves on ALL points, vs observed reality; static = frozen t=0 positions
     t_cmp = min(t_obs, t_fc)
     err = lambda pred, gt: np.linalg.norm(pred - gt, axis=-1).mean(axis=1) * 100
     curves = [err(forecast_samples[s][:t_cmp], observed_tracks[:t_cmp]) for s in range(s_count)]
@@ -189,10 +225,12 @@ def render_demo_video(
 
     orbit = _Orbit3D(np.concatenate([observed_tracks.reshape(-1, 3)] + [f.reshape(-1, 3) for f in forecast_samples]), w, h)
     cond_bgr = cv2.cvtColor(frames[cond_idx], cv2.COLOR_RGB2BGR)
+    cond_dim = (cond_bgr * 0.55).astype(np.uint8)  # dimmed frozen frame reads as deliberate
+    legend = _legend(2 * w, s_count)
 
     writer = None
     for fourcc in ("avc1", "mp4v"):
-        writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*fourcc), playback_fps, (2 * w, 2 * h + TIMELINE_H))
+        writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*fourcc), playback_fps, (2 * w, 2 * h + LEGEND_H + TIMELINE_H))
         if writer.isOpened():
             break
         writer.release()
@@ -216,34 +254,36 @@ def render_demo_video(
             for s in range(s_count):
                 fuv = orbit.project(forecast_samples[s][: min(k + 1, t_fc), show], azim)
                 _trail(p3d, fuv, k, SAMPLE_COLORS[s % len(SAMPLE_COLORS)], trail_len + 4, radius=2)
-        _put(p3d, "3D world space (camera orbits for depth)", (10, 22), 0.45)
-        _put(p3d, "white = observed   colors = 5 sampled futures", (10, h - 12), 0.4, (170, 170, 170))
+        _put(p3d, "SAME TRACKS IN 3D -- the model predicts metric 3D motion,", (10, 22), 0.42)
+        _put(p3d, "not screen positions (view slowly orbits to show depth)", (10, 40), 0.42)
 
         chart = _chart_panel(w, h, curves, static_curve, max(k, 0), fps, y_max)
         top = np.concatenate([left, right], axis=1)
         bottom = np.concatenate([p3d, chart], axis=1)
-        canvas = np.concatenate([top, bottom, _timeline(2 * w, k_global, cond_idx, total, fps)], axis=0)
-        cv2.line(canvas, (w, 0), (w, 2 * h), (90, 88, 86), 1)
-        cv2.line(canvas, (0, h), (2 * w, h), (90, 88, 86), 1)
+        canvas = np.concatenate([top, legend, bottom, _timeline(2 * w, k_global, cond_idx, total, fps)], axis=0)
+        cv2.line(canvas, (w, 0), (w, 2 * h + LEGEND_H), (90, 88, 86), 1)
         if flash > 0:
-            cv2.rectangle(canvas, (2, 2), (2 * w - 3, 2 * h + TIMELINE_H - 3), SAMPLE_COLORS[0], int(2 + 4 * flash))
+            cv2.rectangle(canvas, (2, 2), (2 * w - 3, 2 * h + LEGEND_H + TIMELINE_H - 3), SAMPLE_COLORS[0], int(2 + 4 * flash))
         return canvas
 
     # phase 1: shared playback up to the conditioning frame
     for t in range(cond_idx):
         raw = cv2.cvtColor(frames[t], cv2.COLOR_RGB2BGR)
         left, right = raw.copy(), raw.copy()
-        _put(left, "OBSERVED (TAPIP3D)", (10, 22))
-        _put(right, "FORECAST", (10, 22))
+        _put(left, "LIVE VIDEO", (10, 22))
+        _put(right, "LIVE VIDEO (prediction starts soon)", (10, 22))
         emit(compose(left, right, t))
 
-    # freeze event: hold ~1.2s with the information-boundary caption
+    # freeze event: mark the forecast target and state the information boundary
     left0 = cond_bgr.copy()
-    right0 = cond_bgr.copy()
-    _put(left0, "OBSERVED (TAPIP3D)", (10, 22))
-    _put(right0, "FORECAST", (10, 22))
-    _put(right0, "model sees ONLY this frame -- no future frames", (10, h - 14), 0.46, SAMPLE_COLORS[0])
-    n_freeze = max(1, int(round(1.2 * playback_fps / repeat)))
+    _put(left0, "WHAT ACTUALLY HAPPENS NEXT", (10, 22))
+    _mark_queries(left0, query_uv0)
+    right0 = cond_dim.copy()
+    _mark_queries(right0, query_uv0)
+    _put(right0, "PREDICTION -- frame frozen on purpose", (10, 22))
+    _put(right0, "the model sees ONLY this frame, then predicts", (10, h - 30), 0.46, QUERY_COLOR)
+    _put(right0, "where these points move next, in 3D", (10, h - 12), 0.46, QUERY_COLOR)
+    n_freeze = max(1, int(round(1.6 * playback_fps / repeat)))
     for i in range(n_freeze):
         emit(compose(left0, right0, cond_idx, flash=1.0 - i / n_freeze))
 
@@ -253,15 +293,15 @@ def render_demo_video(
         li = min(cond_idx + k, frames.shape[0] - 1)
         left = cv2.cvtColor(frames[li], cv2.COLOR_RGB2BGR).copy()
         _trail(left, observed_uv, k, OBSERVED_COLOR, trail_len, radius=1)
-        _put(left, "OBSERVED (TAPIP3D)", (10, 22))
-        if k >= t_obs:
-            _put(left, "clip ended", (10, h - 14), 0.42, (170, 170, 170))
+        _put(left, "WHAT ACTUALLY HAPPENS (real video + tracked points)", (10, 22))
 
-        right = cond_bgr.copy()
+        right = cond_dim.copy()
+        if k < 2 * trail_len:
+            _mark_queries(right, query_uv0)
         for s in range(s_count):
             _trail(right, forecast_uv[s], k, SAMPLE_COLORS[s % len(SAMPLE_COLORS)], trail_len)
-        _put(right, "FORECAST", (10, 22))
-        _put(right, f"frozen conditioning frame + {s_count} sampled futures ({observed_tracks.shape[1]} pts, {len(show)} shown)", (10, h - 14), 0.4, (190, 190, 190))
+        _put(right, "PREDICTION (frozen frame, animated 3D forecast)", (10, 22))
+        _put(right, f"+{k / fps:.1f}s into the predicted future", (10, h - 12), 0.5, QUERY_COLOR)
 
         last = compose(left, right, cond_idx + k)
         emit(last)
@@ -269,12 +309,14 @@ def render_demo_video(
     # end hold with computed outcome numbers
     if last is not None:
         fde = [float(np.linalg.norm(forecast_samples[s][t_cmp - 1] - observed_tracks[t_cmp - 1], axis=-1).mean() * 100) for s in range(s_count)]
+        best = int(np.argmin(fde))
         summary = last.copy()
-        box_h = 66
-        cv2.rectangle(summary, (10, 2 * h - box_h - 8), (2 * w - 10, 2 * h - 6), (12, 11, 10), -1)
-        _put(summary, f"final error vs observed at +{(t_cmp - 1) / fps:.1f}s -- best sample: {min(fde):.1f}cm, worst: {max(fde):.1f}cm", (20, 2 * h - box_h + 18), 0.5)
-        _put(summary, f"'object never moves' baseline: {static_curve[t_cmp - 1]:.1f}cm", (20, 2 * h - box_h + 40), 0.5, STATIC_COLOR)
-        _put(summary, "forecast made from ONE frame; tracks are 3D (see world-space view)", (20, 2 * h - box_h + 60), 0.44, (190, 190, 190))
+        box_h = 70
+        y0 = 2 * h + LEGEND_H - box_h - 8
+        cv2.rectangle(summary, (10, y0), (2 * w - 10, y0 + box_h), (12, 11, 10), -1)
+        _put(summary, f"result at +{(t_cmp - 1) / fps:.1f}s: closest prediction was future #{best + 1}, off by {fde[best]:.1f}cm", (20, y0 + 22), 0.52, SAMPLE_COLORS[best % len(SAMPLE_COLORS)])
+        _put(summary, f"'object never moves' baseline: off by {static_curve[t_cmp - 1]:.1f}cm    worst future: {max(fde):.1f}cm", (20, y0 + 44), 0.46, (200, 200, 200))
+        _put(summary, "prediction used ONE frame; positions are metric 3D (bottom-left view)", (20, y0 + 64), 0.44, (170, 170, 170))
         emit(summary, times=max(1, int(round(hold_s * fps))))
 
     writer.release()

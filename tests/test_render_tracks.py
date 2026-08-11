@@ -80,9 +80,9 @@ def test_demo_video_composite_layout_and_framecount(tmp_path):
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     cap.release()
-    assert (w, h) == (2 * frames.shape[2], 2 * frames.shape[1] + 44)
-    # repeat=3 per source step: lead-in 10 + freeze ~1.2s (6 emits) + horizon 24 + 1s hold (5 emits)
-    assert n == 3 * (10 + 6 + 24 + 5)
+    assert (w, h) == (2 * frames.shape[2], 2 * frames.shape[1] + 30 + 44)
+    # repeat=3 per source step: lead-in 10 + freeze ~1.6s (8 emits) + horizon 24 + 1s hold (5 emits)
+    assert n == 3 * (10 + 8 + 24 + 5)
 
 
 def test_video_render_tolerates_behind_camera_points(tmp_path):

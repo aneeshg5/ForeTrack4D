@@ -69,6 +69,22 @@ def test_video_render_forecast_longer_than_observed_holds_last_frame(tmp_path):
     assert n == cond_idx + 20
 
 
+def test_demo_video_composite_layout_and_framecount(tmp_path):
+    from foretrack.viz.demo_video import render_demo_video
+
+    frames, cond_idx, observed, forecast, intrinsics = _video_fixture(f=30, cond_idx=10, t_obs=20, t_fc=24)
+    out = tmp_path / "composite.mp4"
+    render_demo_video(frames, cond_idx, observed, forecast, intrinsics, 5.0, str(out), playback_fps=15.0, hold_s=1.0)
+    cap = cv2.VideoCapture(str(out))
+    n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    cap.release()
+    assert (w, h) == (2 * frames.shape[2], 2 * frames.shape[1] + 44)
+    # repeat=3 per source step: lead-in 10 + freeze ~1.2s (6 emits) + horizon 24 + 1s hold (5 emits)
+    assert n == 3 * (10 + 6 + 24 + 5)
+
+
 def test_video_render_tolerates_behind_camera_points(tmp_path):
     frames, cond_idx, observed, forecast, intrinsics = _video_fixture()
     observed[:, 0, 2] = -1.0  # one point behind the camera for the whole horizon -> NaN uv

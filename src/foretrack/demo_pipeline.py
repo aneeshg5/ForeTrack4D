@@ -13,7 +13,8 @@ from .eval.metrics import ade_per_timestep
 from .labeling.impute import read_video_frames
 from .labeling.run_tapip3d import run as run_tapip3d
 from .labeling.segment import Sam2ObjectSegmenter, detect_hand_landmarks, detect_hands, sample_query_points_in_mask
-from .viz.render_tracks import render_forecast_vs_reality, render_forecast_vs_reality_video
+from .viz.demo_video import render_demo_video
+from .viz.render_tracks import render_forecast_vs_reality
 
 MAX_DURATION_S = 15.0
 # mean abs per-pixel intensity change between consecutive frames (0-255 scale) flagged as a
@@ -72,6 +73,7 @@ def run_demo_job(
     forecast_config: str,
     forecast_checkpoint: str,
     k_samples: int = 5,
+    sam2_device: str = "cuda",
 ) -> dict:
     """Full demo job: validate -> pick conditioning frame -> detect hand+object -> run
     TAPIP3D+MegaSaM on the clip suffix starting at the conditioning frame ("observed reality")
@@ -102,7 +104,7 @@ def run_demo_job(
     landmark_sets = detect_hand_landmarks(cond_frame, hand_model_path)
     neg_points = np.concatenate(landmark_sets, axis=0) if landmark_sets else None
 
-    segmenter = Sam2ObjectSegmenter(sam2_checkpoint, sam2_model_cfg)
+    segmenter = Sam2ObjectSegmenter(sam2_checkpoint, sam2_model_cfg, device=sam2_device)
     mask = segmenter.object_mask(cond_frame, contact_point, neg_points)
     if not mask.any():
         return {"status": "rejected", "reason": "no manipulated object found near the detected hand -- make sure the object is clearly visible and being held"}
@@ -167,7 +169,7 @@ def run_demo_job(
     render_forecast_vs_reality(cond_frame, observed_tracks, forecast_samples, intrinsics, str(render_path))
 
     video_path = out_dir / "comparison.mp4"
-    render_forecast_vs_reality_video(
+    render_demo_video(
         frames, cond_idx, observed_tracks, forecast_samples, intrinsics, fps, str(video_path),
     )
 

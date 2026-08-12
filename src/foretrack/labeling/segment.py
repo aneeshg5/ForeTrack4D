@@ -83,7 +83,28 @@ class Sam2ObjectSegmenter:
         masks, scores, _ = self.predictor.predict(
             point_coords=point_coords, point_labels=point_labels, multimask_output=True
         )
-        return masks[int(np.argmax(scores))].astype(bool)
+        # best-score with a single positive point is usually the finest sub-part granularity
+        # (e.g. a sliver of the object at the fingertips), not the object: pick the LARGEST
+        # proposal that neither swallows the frame nor captures the hand's negative points
+        frame_area = masks[0].size
+        best, best_area = None, -1
+        for m in masks:
+            m = m.astype(bool)
+            area = int(m.sum())
+            if area > 0.4 * frame_area:
+                continue
+            if negative_points is not None and len(negative_points) > 0:
+                xs = np.clip(negative_points[:, 0].astype(int), 0, m.shape[1] - 1)
+                ys = np.clip(negative_points[:, 1].astype(int), 0, m.shape[0] - 1)
+                # a grasping hand's landmarks naturally fall inside the object's 2D region, so
+                # only reject when the mask swallows most of the hand
+                if m[ys, xs].mean() > 0.6:
+                    continue
+            if area > best_area:
+                best, best_area = m, area
+        if best is None:
+            best = masks[int(np.argmax(scores))].astype(bool)
+        return best
 
 
 def save_mask_overlay(

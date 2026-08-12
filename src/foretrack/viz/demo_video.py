@@ -53,17 +53,22 @@ def _trail(img, uv, k, color, trail_len, radius=3):
             cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, dst=img)
 
 
-def _mark_queries(img, uv0, label=None):
+def _mark_queries(img, uv0):
     """rings around the query points at their t=0 positions -- identifies WHAT is forecast."""
     for x, y in uv0:
         if np.isnan(x) or np.isnan(y):
             continue
         cv2.circle(img, (int(round(x)), int(round(y))), 6, QUERY_COLOR, 1, cv2.LINE_AA)
-    if label:
-        good = uv0[~np.isnan(uv0).any(axis=1)]
-        if len(good):
-            cx, cy = good.mean(axis=0)
-            _put(img, label, (max(int(cx) - 100, 6), max(int(cy) - 18, 16)), 0.44, QUERY_COLOR)
+
+
+def _mark_mask(img, mask, alpha=0.3, outline=True):
+    """tint + outline the segmented object -- identifies WHAT is forecast."""
+    overlay = img.copy()
+    overlay[mask] = (0.55 * np.array(QUERY_COLOR) + 0.45 * overlay[mask]).astype(np.uint8)
+    cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, dst=img)
+    if outline:
+        contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(img, contours, -1, QUERY_COLOR, 2, cv2.LINE_AA)
 
 
 def _select_display_points(query_xyz: np.ndarray, n_show: int) -> np.ndarray:
@@ -201,6 +206,7 @@ def render_demo_video(
     hold_s: float = 3.0,
     playback_fps: float = 15.0,
     max_horizon: int = None,
+    object_mask: np.ndarray = None,
 ) -> str:
     """frames: (F, H, W, 3) uint8 RGB. observed_tracks: (T_obs, N, 3) metric, from cond_idx on.
     forecast_samples: (S, T, N, 3). Writes the composite mp4 and returns its path. Metrics use
@@ -277,9 +283,13 @@ def render_demo_video(
     # freeze event: mark the forecast target and state the information boundary
     left0 = cond_bgr.copy()
     _put(left0, "WHAT ACTUALLY HAPPENS NEXT", (10, 22))
-    _mark_queries(left0, query_uv0)
     right0 = cond_dim.copy()
-    _mark_queries(right0, query_uv0)
+    if object_mask is not None:
+        _mark_mask(left0, object_mask)
+        _mark_mask(right0, object_mask, alpha=0.5)
+    else:
+        _mark_queries(left0, query_uv0)
+        _mark_queries(right0, query_uv0)
     _put(right0, "PREDICTION -- frame frozen on purpose", (10, 22))
     _put(right0, "the model sees ONLY this frame, then predicts", (10, h - 30), 0.46, QUERY_COLOR)
     _put(right0, "where these points move next, in 3D", (10, h - 12), 0.46, QUERY_COLOR)
@@ -296,7 +306,9 @@ def render_demo_video(
         _put(left, "WHAT ACTUALLY HAPPENS (real video + tracked points)", (10, 22))
 
         right = cond_dim.copy()
-        if k < 2 * trail_len:
+        if object_mask is not None:
+            _mark_mask(right, object_mask, alpha=0.25, outline=k < 2 * trail_len)
+        elif k < 2 * trail_len:
             _mark_queries(right, query_uv0)
         for s in range(s_count):
             _trail(right, forecast_uv[s], k, SAMPLE_COLORS[s % len(SAMPLE_COLORS)], trail_len)

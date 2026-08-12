@@ -29,8 +29,18 @@ def _latest_result_npz(output_dir: Path) -> Path:
 
 
 def _invoke(
-    input_npz: str, output_dir: str, tapip3d_python: str, tapip3d_repo: str, checkpoint: str
+    input_npz: str, output_dir: str, tapip3d_python: str, tapip3d_repo: str, checkpoint: str,
+    reuse_result: bool = False,
 ) -> Path:
+    # reuse_result: return an existing result npz instead of rerunning -- only safe when the
+    # pass's inputs are unchanged (the depth pass depends only on video+intrinsics)
+    if reuse_result:
+        try:
+            existing = _latest_result_npz(output_dir)
+            if existing is not None:
+                return existing
+        except (FileNotFoundError, IndexError, ValueError):
+            pass
     # Several of TAPIP3D's own vendored MegaSaM subprocess stages spawn further NESTED
     # subprocesses as the bare string "python" (relying on PATH, not sys.executable) --
     # that nested lookup only succeeds if tapip3d_python's own directory is on PATH, true if
@@ -122,7 +132,7 @@ def run(
     depth_pass_dir.mkdir(parents=True, exist_ok=True)
     depth_input_npz = depth_pass_dir / "input.npz"
     np.savez(depth_input_npz, video=video, intrinsics=intrinsics_seq)
-    depth_result = np.load(_invoke(depth_input_npz, depth_pass_dir, tapip3d_python, tapip3d_repo, checkpoint))
+    depth_result = np.load(_invoke(depth_input_npz, depth_pass_dir, tapip3d_python, tapip3d_repo, checkpoint, reuse_result=True))
 
     # TAPIP3D's own prepare_inputs resizes video (and depth) to an internal working resolution
     # (confirmed directly: a 640x360 input clip came back with depths shaped (543, 724), not

@@ -109,6 +109,12 @@ def run_demo_job(
     if not mask.any():
         return {"status": "rejected", "reason": "no manipulated object found near the detected hand -- make sure the object is clearly visible and being held"}
 
+    # 64 queries need real spatial support: a tiny mask collapses them onto a few pixels
+    # (sampled with replacement), which is far outside the training manifold and produces
+    # garbage forecasts -- reject honestly instead
+    if int(mask.sum()) < 300:
+        return {"status": "rejected", "reason": "could not isolate the manipulated object (segmentation too small) -- try a frame where the object is clearly visible"}
+    np.save(out_dir / "mask.npy", mask)
     query_uv_full = sample_query_points_in_mask(mask, n=64)
 
     # crop + preprocess the conditioning frame exactly like training preprocessing

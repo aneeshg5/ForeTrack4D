@@ -48,6 +48,11 @@ def main():
     parser.add_argument("--input_npz", required=True, help="image (H,W,3 uint8), query_uv (N,2), query_xyz_t0 (N,3) raw metric, orig_h, orig_w")
     parser.add_argument("--output_npz", required=True)
     parser.add_argument("--samples", type=int, default=5)
+    parser.add_argument(
+        "--transl_stats", default=None,
+        help="translation-stats json matching the clip's source domain; defaults to the "
+        "config's first dataset, which is wrong for clips from any other source",
+    )
     parser.add_argument("--num_inference_steps", type=int, default=20)
     parser.add_argument("--eta", type=float, default=0.0)
     args = parser.parse_args()
@@ -64,8 +69,8 @@ def main():
     query_xyz_t0_raw = data["query_xyz_t0"].astype(np.float32)  # (N, 3) raw metric, camera(0) frame
     orig_h, orig_w = int(data["orig_h"]), int(data["orig_w"])
 
-    ds_cfg = cfg["data"]["datasets"][cfg["dataset"].split("+")[0]]
-    transl_mean, transl_std = load_transl_stats(ds_cfg["transl_stats"])
+    stats_path = args.transl_stats or cfg["data"]["datasets"][cfg["dataset"].split("+")[0]]["transl_stats"]
+    transl_mean, transl_std = load_transl_stats(stats_path)
 
     from foretrack.data.dexycb import IMAGENET_MEAN, IMAGENET_STD
     image_t = (image.astype(np.float32) / 255.0 - IMAGENET_MEAN) / IMAGENET_STD

@@ -69,17 +69,24 @@ predicted trajectories against what actually happened, alongside a
 metric 3D view and a live error-vs-baseline chart. No pixels are
 synthesized. See `demo/README.md`.
 
-Per-clip results across held-out lab data (best of 5 samples, cm,
-against the "object never moves" baseline):
+Per-clip error at the final predicted frame, in cm, against the "object
+never moves" baseline. Mean is over the 5 sampled futures (single-sample
+deployment); best is the closest of the 5:
 
-| clip | best ADE | static ADE | best final | static final |
-|---|---|---|---|---|
-| DexYCB gelatin box (test) | 5.1 | 24.3 | 5.8 | 46.7 |
-| DexYCB foam brick (val) | 6.8 | 29.1 | 8.7 | 48.5 |
-| DexYCB wood block (test) | 10.0 | 25.2 | 17.6 | 48.5 |
-| H2O milk, egocentric (test) | 3.7 | 11.6 | 5.2 | 12.9 |
-| ARCTIC phone, articulated (val) | 13.2 | 19.6 | 20.0 | 39.8 |
-| HoloAssist cart, in-the-wild ego | 30.0 | 16.4 | 35.2 | 33.8 |
+| clip | final: mean | final: best | static |
+|---|---|---|---|
+| DexYCB gelatin box (test) | 10.5 | 5.8 | 46.7 |
+| DexYCB foam brick (val) | 10.0 | 8.7 | 48.5 |
+| DexYCB wood block (test) | 24.5 | 17.6 | 48.5 |
+| H2O milk, egocentric (test) | 10.1 | 5.2 | 12.9 |
+| ARCTIC phone, articulated (val) | 25.1 | 20.0 | 39.8 |
+| HoloAssist cart, in-the-wild ego | 35.9 | 35.2 | 33.8 |
+
+Error is not uniform over the horizon: the model is worse than the
+baseline early (the object has not moved yet, and the model commits to
+motion slightly too soon, overshooting by up to 11cm mid-clip) and
+better late, where the baseline diverges and the model stays flat.
+Sampling is stochastic; repeated runs vary by roughly ±25%.
 
 The last row is the open gap: on in-the-wild egocentric video, where
 reality itself comes from TAPIP3D rather than mesh ground truth, the

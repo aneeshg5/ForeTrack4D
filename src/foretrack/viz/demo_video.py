@@ -24,6 +24,7 @@ STATIC_COLOR = (128, 128, 128)
 BG = (24, 22, 20)
 TIMELINE_H = 44
 LEGEND_H = 30
+HEADER_H = 34
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 
@@ -207,10 +208,26 @@ def render_demo_video(
     playback_fps: float = 15.0,
     max_horizon: int = None,
     object_mask: np.ndarray = None,
+    caption: str = None,
+    target_width: int = 720,
+    static_camera: bool = True,
 ) -> str:
     """frames: (F, H, W, 3) uint8 RGB. observed_tracks: (T_obs, N, 3) metric, from cond_idx on.
     forecast_samples: (S, T, N, 3). Writes the composite mp4 and returns its path. Metrics use
-    all N points; the panels display an FPS-thinned subset of n_show for legibility."""
+    all N points; the panels display an FPS-thinned subset of n_show for legibility.
+
+    static_camera: both track sets live in the camera frame at cond_idx, so their 2D projection
+    is only valid from that viewpoint. With a moving (egocentric) camera the observed track is
+    therefore not drawn over later video frames -- the frozen panel carries the comparison,
+    where the projection is exact."""
+    # normalize panel size so text, markers and output resolution are consistent across
+    # datasets; intrinsics must scale with the frames or the projection breaks
+    if frames.shape[2] > target_width:
+        r = target_width / frames.shape[2]
+        frames = np.stack([cv2.resize(f, (int(round(frames.shape[2] * r)), int(round(frames.shape[1] * r)))) for f in frames])
+        intrinsics = intrinsics.copy()
+        intrinsics[:2] *= r
+
     h, w = frames.shape[1:3]
     s_count, t_fc = forecast_samples.shape[0], forecast_samples.shape[1]
     t_obs = observed_tracks.shape[0]
@@ -223,10 +240,12 @@ def render_demo_video(
     forecast_uv = [project_points(forecast_samples[s][:, show], intrinsics) for s in range(s_count)]
     query_uv0 = observed_uv[0]
 
-    t_cmp = min(t_obs, t_fc)
+    # every curve is cut to the animated horizon: a longer observed sequence would otherwise
+    # stretch the chart's x-axis far past what the video actually shows
+    t_cmp = min(t_obs, t_fc, horizon)
     err = lambda pred, gt: np.linalg.norm(pred - gt, axis=-1).mean(axis=1) * 100
     curves = [err(forecast_samples[s][:t_cmp], observed_tracks[:t_cmp]) for s in range(s_count)]
-    static_curve = err(np.repeat(observed_tracks[:1], t_obs, axis=0), observed_tracks)
+    static_curve = err(np.repeat(observed_tracks[:1], t_cmp, axis=0), observed_tracks[:t_cmp])
     y_max = max(1.0, float(np.nanmax([np.nanmax(c) for c in curves + [static_curve]])) * 1.15)
 
     orbit = _Orbit3D(np.concatenate([observed_tracks.reshape(-1, 3)] + [f.reshape(-1, 3) for f in forecast_samples]), w, h)
@@ -234,9 +253,15 @@ def render_demo_video(
     cond_dim = (cond_bgr * 0.55).astype(np.uint8)  # dimmed frozen frame reads as deliberate
     legend = _legend(2 * w, s_count)
 
+    header = None
+    if caption:
+        header = np.full((HEADER_H, 2 * w, 3), (16, 15, 14), np.uint8)
+        _put(header, caption, (14, 22), 0.5)
+    head_h = HEADER_H if header is not None else 0
+
     writer = None
     for fourcc in ("avc1", "mp4v"):
-        writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*fourcc), playback_fps, (2 * w, 2 * h + LEGEND_H + TIMELINE_H))
+        writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*fourcc), playback_fps, (2 * w, 2 * h + LEGEND_H + TIMELINE_H + head_h))
         if writer.isOpened():
             break
         writer.release()
@@ -266,8 +291,9 @@ def render_demo_video(
         chart = _chart_panel(w, h, curves, static_curve, max(k, 0), fps, y_max)
         top = np.concatenate([left, right], axis=1)
         bottom = np.concatenate([p3d, chart], axis=1)
-        canvas = np.concatenate([top, legend, bottom, _timeline(2 * w, k_global, cond_idx, total, fps)], axis=0)
-        cv2.line(canvas, (w, 0), (w, 2 * h + LEGEND_H), (90, 88, 86), 1)
+        parts = ([header] if header is not None else []) + [top, legend, bottom, _timeline(2 * w, k_global, cond_idx, total, fps)]
+        canvas = np.concatenate(parts, axis=0)
+        cv2.line(canvas, (w, head_h), (w, head_h + 2 * h + LEGEND_H), (90, 88, 86), 1)
         if flash > 0:
             cv2.rectangle(canvas, (2, 2), (2 * w - 3, 2 * h + LEGEND_H + TIMELINE_H - 3), SAMPLE_COLORS[0], int(2 + 4 * flash))
         return canvas
@@ -293,7 +319,9 @@ def render_demo_video(
     _put(right0, "PREDICTION -- frame frozen on purpose", (10, 22))
     _put(right0, "the model sees ONLY this frame, then predicts", (10, h - 30), 0.46, QUERY_COLOR)
     _put(right0, "where these points move next, in 3D", (10, h - 12), 0.46, QUERY_COLOR)
-    n_freeze = max(1, int(round(1.6 * playback_fps / repeat)))
+    # with no lead-in there is no synced-playback phase, so the freeze card alone has to
+    # establish the information boundary -- hold it longer
+    n_freeze = max(1, int(round((2.6 if cond_idx == 0 else 1.6) * playback_fps / repeat)))
     for i in range(n_freeze):
         emit(compose(left0, right0, cond_idx, flash=1.0 - i / n_freeze))
 
@@ -302,17 +330,21 @@ def render_demo_video(
     for k in range(horizon):
         li = min(cond_idx + k, frames.shape[0] - 1)
         left = cv2.cvtColor(frames[li], cv2.COLOR_RGB2BGR).copy()
-        _trail(left, observed_uv, k, OBSERVED_COLOR, trail_len, radius=1)
-        _put(left, "WHAT ACTUALLY HAPPENS (real video + tracked points)", (10, 22))
+        if static_camera:
+            _trail(left, observed_uv, k, OBSERVED_COLOR, trail_len, radius=1)
+            _put(left, "WHAT ACTUALLY HAPPENS (real video + tracked points)", (10, 22))
+        else:
+            _put(left, "WHAT ACTUALLY HAPPENS (real video)", (10, 22))
 
         right = cond_dim.copy()
         if object_mask is not None:
             _mark_mask(right, object_mask, alpha=0.25, outline=k < 2 * trail_len)
         elif k < 2 * trail_len:
             _mark_queries(right, query_uv0)
+        _trail(right, observed_uv, k, OBSERVED_COLOR, trail_len, radius=1)
         for s in range(s_count):
             _trail(right, forecast_uv[s], k, SAMPLE_COLORS[s % len(SAMPLE_COLORS)], trail_len)
-        _put(right, "PREDICTION (frozen frame, animated 3D forecast)", (10, 22))
+        _put(right, "PREDICTED (colors) vs ACTUAL (white), frozen frame", (10, 22))
         _put(right, f"+{k / fps:.1f}s into the predicted future", (10, h - 12), 0.5, QUERY_COLOR)
 
         last = compose(left, right, cond_idx + k)
@@ -324,7 +356,7 @@ def render_demo_video(
         best = int(np.argmin(fde))
         summary = last.copy()
         box_h = 70
-        y0 = 2 * h + LEGEND_H - box_h - 8
+        y0 = head_h + 2 * h + LEGEND_H - box_h - 8
         cv2.rectangle(summary, (10, y0), (2 * w - 10, y0 + box_h), (12, 11, 10), -1)
         _put(summary, f"result at +{(t_cmp - 1) / fps:.1f}s: closest prediction was future #{best + 1}, off by {fde[best]:.1f}cm", (20, y0 + 22), 0.52, SAMPLE_COLORS[best % len(SAMPLE_COLORS)])
         _put(summary, f"'object never moves' baseline: off by {static_curve[t_cmp - 1]:.1f}cm    worst future: {max(fde):.1f}cm", (20, y0 + 44), 0.46, (200, 200, 200))

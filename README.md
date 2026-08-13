@@ -63,10 +63,27 @@ predictions and falls back to static, recovering most of the gap
 `demo/` is a "forecast vs. reality" web demo: upload a short single-shot
 hand-object video, pick a conditioning frame, and the backend tracks
 observed reality with TAPIP3D+MegaSaM, samples K forecasts from that
-frame, and renders a side-by-side video — both panels play the real clip
-to the conditioning frame, then one continues as reality with observed
-tracks overlaid while the other freezes and animates only the predicted
-trajectories. No pixels are synthesized. See `demo/README.md`.
+frame, and renders a side-by-side video — the left panel plays the real
+clip while the right freezes on the conditioning frame and animates the
+predicted trajectories against what actually happened, alongside a
+metric 3D view and a live error-vs-baseline chart. No pixels are
+synthesized. See `demo/README.md`.
+
+Per-clip results across held-out lab data (best of 5 samples, cm,
+against the "object never moves" baseline):
+
+| clip | best ADE | static ADE | best final | static final |
+|---|---|---|---|---|
+| DexYCB gelatin box (test) | 5.1 | 24.3 | 5.8 | 46.7 |
+| DexYCB foam brick (val) | 6.8 | 29.1 | 8.7 | 48.5 |
+| DexYCB wood block (test) | 10.0 | 25.2 | 17.6 | 48.5 |
+| H2O milk, egocentric (test) | 3.7 | 11.6 | 5.2 | 12.9 |
+| ARCTIC phone, articulated (val) | 13.2 | 19.6 | 20.0 | 39.8 |
+| HoloAssist cart, in-the-wild ego | 30.0 | 16.4 | 35.2 | 33.8 |
+
+The last row is the open gap: on in-the-wild egocentric video, where
+reality itself comes from TAPIP3D rather than mesh ground truth, the
+model does not beat the baseline.
 
 ## Setup
 

@@ -132,8 +132,12 @@ def _chart_panel(w, h, curves, static_curve, k, fps, y_max):
         y = int(mt + ph * (1 - frac))
         cv2.line(img, (ml, y), (ml + pw, y), (50, 48, 46), 1)
         _put(img, f"{frac * y_max:.0f}", (10, y + 4), 0.4, (150, 150, 150))
-    x_of = lambda t: int(ml + pw * t / max(t_max - 1, 1))
-    y_of = lambda v: int(mt + ph * (1 - min(v, y_max) / y_max))
+    def x_of(t):
+        return int(ml + pw * t / max(t_max - 1, 1))
+
+    def y_of(v):
+        return int(mt + ph * (1 - min(v, y_max) / y_max))
+
     _put(img, "0s", (ml - 6, h - 12), 0.4, (150, 150, 150))
     _put(img, f"+{(t_max - 1) / fps:.1f}s", (ml + pw - 34, h - 12), 0.4, (150, 150, 150))
 
@@ -243,7 +247,9 @@ def render_demo_video(
     # every curve is cut to the animated horizon: a longer observed sequence would otherwise
     # stretch the chart's x-axis far past what the video actually shows
     t_cmp = min(t_obs, t_fc, horizon)
-    err = lambda pred, gt: np.linalg.norm(pred - gt, axis=-1).mean(axis=1) * 100
+    def err(pred, gt):
+        return np.linalg.norm(pred - gt, axis=-1).mean(axis=1) * 100
+
     curves = [err(forecast_samples[s][:t_cmp], observed_tracks[:t_cmp]) for s in range(s_count)]
     static_curve = err(np.repeat(observed_tracks[:1], t_cmp, axis=0), observed_tracks[:t_cmp])
     y_max = max(1.0, float(np.nanmax([np.nanmax(c) for c in curves + [static_curve]])) * 1.15)

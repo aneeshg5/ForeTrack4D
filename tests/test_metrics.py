@@ -1,6 +1,15 @@
 import numpy as np
 
-from foretrack.eval.metrics import ade, ade_first_frame_aligned, ade_global_aligned, ade_per_timestep, apd3d, dataset_diversity, diversity, fde
+from foretrack.eval.metrics import (
+    ade,
+    ade_first_frame_aligned,
+    ade_global_aligned,
+    ade_per_timestep,
+    apd3d,
+    dataset_diversity,
+    diversity,
+    fde,
+)
 
 
 def test_ade_zero_for_identical_tracks():

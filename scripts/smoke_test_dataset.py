@@ -46,7 +46,7 @@ def main():
     print(f"batch tracks: {tuple(batch['tracks'].shape)}")
     assert batch["tracks"].shape == (4, 128, 64, 3)
 
-    bz, n, latent_dim = 4, 64, 64
+    n, latent_dim = 64, 64
     image_encoder = ImageEncoder(vit_init="random").to(device)
     query_tokenizer = QueryTokenizer(latent_dim=latent_dim, dropout_prob=0.1, vit_feat_dim=1280).to(device)
     denoiser = TrackDenoiser(n=n, t=128, latent_dim=latent_dim, num_layers=2, num_heads=2, ff_size=128).to(device)

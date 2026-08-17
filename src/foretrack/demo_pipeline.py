@@ -12,7 +12,12 @@ from .data.dexycb import CROP_TARGET_SIZE, compute_object_crop
 from .eval.metrics import ade_per_timestep
 from .labeling.impute import read_video_frames
 from .labeling.run_tapip3d import run as run_tapip3d
-from .labeling.segment import Sam2ObjectSegmenter, detect_hand_landmarks, detect_hands, sample_query_points_in_mask
+from .labeling.segment import (
+    Sam2ObjectSegmenter,
+    detect_hand_landmarks,
+    detect_hands,
+    sample_query_points_in_mask,
+)
 from .viz.demo_video import render_demo_video
 from .viz.render_tracks import render_forecast_vs_reality
 

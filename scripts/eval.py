@@ -16,7 +16,16 @@ from foretrack.data.dexycb import load_transl_stats
 from foretrack.data.mixed import DATASET_CLASSES
 from foretrack.data.transforms import denormalize_translation
 from foretrack.eval.baselines import constant_velocity, static
-from foretrack.eval.metrics import ade, ade_first_frame_aligned, ade_global_aligned, ade_per_timestep, apd3d, dataset_diversity, diversity, fde
+from foretrack.eval.metrics import (
+    ade,
+    ade_first_frame_aligned,
+    ade_global_aligned,
+    ade_per_timestep,
+    apd3d,
+    dataset_diversity,
+    diversity,
+    fde,
+)
 from foretrack.eval.ood_gate import gated_prediction
 from foretrack.models.conditioning import ImageEncoder, QueryTokenizer
 from foretrack.models.denoiser import TrackDenoiser

@@ -35,6 +35,9 @@ where = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+# vendored verbatim from forehand4d (see NOTICE.md) -- kept byte-identical so the diff against
+# upstream stays reviewable, which means it is not ours to reformat
+extend-exclude = ["src/foretrack/models/vit.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

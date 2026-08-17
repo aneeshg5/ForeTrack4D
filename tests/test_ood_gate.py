@@ -1,6 +1,10 @@
 import numpy as np
 
-from foretrack.eval.ood_gate import DISAGREEMENT_THRESHOLD_CM, conditioned_disagreement, gated_prediction
+from foretrack.eval.ood_gate import (
+    DISAGREEMENT_THRESHOLD_CM,
+    conditioned_disagreement,
+    gated_prediction,
+)
 
 
 def test_conditioned_disagreement_zero_when_identical():

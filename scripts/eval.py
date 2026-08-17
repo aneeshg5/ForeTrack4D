@@ -7,11 +7,16 @@ import torch
 import yaml
 from torch.utils.data import DataLoader
 
+# some cluster nodes fail cuDNN handle creation while plain CUDA kernels work; the only conv
+# here is the ViT patch embed, so the fallback costs nothing measurable
+if os.environ.get("FORETRACK_DISABLE_CUDNN"):
+    torch.backends.cudnn.enabled = False
+
 from foretrack.data.dexycb import load_transl_stats
 from foretrack.data.mixed import DATASET_CLASSES
 from foretrack.data.transforms import denormalize_translation
 from foretrack.eval.baselines import constant_velocity, static
-from foretrack.eval.metrics import ade, ade_first_frame_aligned, ade_global_aligned, ade_per_timestep, apd3d, diversity, fde
+from foretrack.eval.metrics import ade, ade_first_frame_aligned, ade_global_aligned, ade_per_timestep, apd3d, dataset_diversity, diversity, fde
 from foretrack.eval.ood_gate import gated_prediction
 from foretrack.models.conditioning import ImageEncoder, QueryTokenizer
 from foretrack.models.denoiser import TrackDenoiser
@@ -197,7 +202,11 @@ def main():
         # QueryTokenizer.forward), so no checkpoint state to load here.
         query_tokenizer_uncond = QueryTokenizer(latent_dim=m["latent_dim"], dropout_prob=0.0, vit_feat_dim=1280, disable_query_cond=True).to(device).eval()
 
-    model_names = ["static", "const_vel", "regressor", "diffusion"]
+    # "diffusion" selects the best of S samples using the ground truth (minADE_S, the standard
+    # trajectory-forecasting metric); "diffusion_1" averages the metric over samples instead,
+    # which is what a single draw actually delivers with no oracle to pick with. The baselines
+    # are deterministic, so only the latter compares like with like.
+    model_names = ["static", "const_vel", "regressor", "diffusion", "diffusion_1"]
     if args.ood_gate and diffusion_net is not None:
         model_names.append("diffusion_gated")
     results = {k: [] for k in model_names}
@@ -207,6 +216,19 @@ def main():
     apd3d_results = {k: [] for k in model_names}
     horizon_curves = {k: [] for k in model_names}  # list of (T,) per-sample arrays, nanmean'd at the end
     diversity_results = []
+    pred_motions = []  # displacement from t=0, for dataset-level diversity
+    gt_motions = []
+
+    def record_mean_over_samples(name, preds, gt_b, mask_b, fx, fy, visibility_b):
+        """expected metric of one random sample, not the metric of an averaged trajectory --
+        averaging multimodal trajectories would produce a path the model never predicts."""
+        results[name].append(float(np.mean([ade(p, gt_b, mask_b) for p in preds])))
+        fde_results[name].append(float(np.mean([fde(p, gt_b, mask_b) for p in preds])))
+        ff_results[name].append(float(np.mean([ade_first_frame_aligned(p, gt_b, mask_b) for p in preds])))
+        global_results[name].append(float(np.mean([ade_global_aligned(p, gt_b, mask_b) for p in preds])))
+        apd3d_results[name].append(float(np.mean([apd3d(p, gt_b, fx, fy, visibility_b, mask_b) for p in preds])))
+        if args.horizon_plot:
+            horizon_curves[name].append(np.nanmean(np.stack([ade_per_timestep(p, gt_b, mask_b) for p in preds]), axis=0))
 
     def record(name, pred, gt_b, mask_b, fx, fy, visibility_b):
         results[name].append(ade(pred, gt_b, mask_b))
@@ -269,7 +291,11 @@ def main():
                 per_sample_ade = [ade(samples[s, b], gt[b], mask[b]) for s in range(args.samples_per_input)]
                 best = int(np.argmin(per_sample_ade))
                 record("diffusion", samples[best, b], gt[b], mask[b], fx, fy, visibility[b])
+                record_mean_over_samples("diffusion_1", samples[:, b], gt[b], mask[b], fx, fy, visibility[b])
                 diversity_results.append(diversity(samples[:, b]))
+                valid = mask[b]
+                pred_motions.append(samples[0, b][valid] - samples[0, b][0])
+                gt_motions.append(gt[b][valid] - gt[b][0])
                 if query_tokenizer_uncond is not None:
                     pred_static_b = static(query_xyz_t0[b], t_len)
                     pred_gated = gated_prediction(samples[best, b], pred_uncond[b], pred_static_b, mask[b])
@@ -287,7 +313,14 @@ def main():
             f"APD3D: {np.mean(apd3d_results[k]):6.2f}   n={len(results[k])}"
         )
     if diversity_results:
-        print(f"diffusion diversity (mean pairwise L2, cm): {np.mean(diversity_results):.2f}")
+        print(f"\nmultimodality (mean pairwise L2 between {args.samples_per_input} samples of the same input, cm): {np.mean(diversity_results):.2f}")
+    if len(pred_motions) >= 2:
+        n_t = min(m.shape[0] for m in pred_motions)
+        pm = np.stack([m[:n_t] for m in pred_motions])
+        gm = np.stack([m[:n_t] for m in gt_motions])
+        print(f"dataset diversity, predicted: {dataset_diversity(pm):.2f}   ground truth: {dataset_diversity(gm):.2f}")
+        print("(closer to the ground-truth value is better -- a much larger value means predictions")
+        print(" are scattered rather than distributed like real motion)")
 
     print("\nnote: const_vel is oracle-ish (uses real GT frame 1) -- not a fair comparison to")
     print("the actual model, which only sees a single frame.")
@@ -297,15 +330,27 @@ def main():
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
+        # the two baselines can track each other almost exactly, so vary linestyle and width:
+        # with a single style the later curve hides the earlier one and the plot looks broken
+        styles = {
+            "static": dict(color="0.25", ls="--", lw=2.4),
+            "const_vel": dict(color="0.55", ls=":", lw=2.0),
+            "regressor": dict(color="tab:green", ls="-", lw=1.8),
+            "diffusion": dict(color="tab:red", ls="-", lw=1.8),
+            "diffusion_1": dict(color="tab:purple", ls="-.", lw=1.8),
+            "diffusion_gated": dict(color="tab:brown", ls=(0, (5, 1)), lw=1.5),
+        }
+        labels = {"diffusion": "diffusion (minADE-5)", "diffusion_1": "diffusion (1 sample)"}
         plt.figure(figsize=(7, 5))
         for k in model_names:
             if len(horizon_curves[k]) == 0:
                 continue
             curve = np.nanmean(np.stack(horizon_curves[k]), axis=0)  # (T,)
-            plt.plot(curve, label=k)
+            plt.plot(curve, label=labels.get(k, k), **styles.get(k, {}))
         plt.xlabel("forecast horizon (timestep)")
         plt.ylabel("ADE (cm)")
         plt.title("error vs. horizon")
+        plt.grid(alpha=0.25)
         plt.legend()
         plt.tight_layout()
         plt.savefig(args.horizon_plot, dpi=150)

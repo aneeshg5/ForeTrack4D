@@ -1,6 +1,6 @@
 import numpy as np
 
-from foretrack.eval.metrics import ade, ade_first_frame_aligned, ade_global_aligned, ade_per_timestep, apd3d, diversity, fde
+from foretrack.eval.metrics import ade, ade_first_frame_aligned, ade_global_aligned, ade_per_timestep, apd3d, dataset_diversity, diversity, fde
 
 
 def test_ade_zero_for_identical_tracks():
@@ -83,3 +83,24 @@ def test_ade_per_timestep_masks_as_nan():
     result = ade_per_timestep(pred, gt, mask)
     assert not np.isnan(result[0]) and not np.isnan(result[1])
     assert np.isnan(result[2]) and np.isnan(result[3])
+
+
+def test_dataset_diversity_zero_for_identical_motions():
+    m = np.tile(np.linspace(0, 0.1, 6)[:, None, None], (1, 4, 3)).astype(np.float32)
+    motions = np.stack([m, m, m])
+    assert dataset_diversity(motions, n_pairs=50) == 0.0
+
+
+def test_dataset_diversity_matches_known_offset():
+    base = np.zeros((6, 4, 3), np.float32)
+    other = np.zeros((6, 4, 3), np.float32)
+    other[..., 0] = 0.05  # every point differs by exactly 5cm along x
+    motions = np.stack([base, other])
+    np.testing.assert_allclose(dataset_diversity(motions, n_pairs=200), 5.0, atol=1e-4)
+
+
+def test_dataset_diversity_grows_with_spread():
+    rng = np.random.default_rng(0)
+    tight = rng.normal(0, 0.01, (20, 6, 4, 3)).astype(np.float32)
+    wide = rng.normal(0, 0.10, (20, 6, 4, 3)).astype(np.float32)
+    assert dataset_diversity(wide, n_pairs=200) > 5 * dataset_diversity(tight, n_pairs=200)

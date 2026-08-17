@@ -38,15 +38,22 @@ conditional diffusion model predicts the object's future 3D motion — not pixel
 just 3D point tracks. See the <a href="https://github.com/aneeshg5/foretrack4d">full repo</a> for details.</p>
 
 <h2>In-domain, the model works</h2>
-<p>On held-out data from datasets it trained on, the diffusion forecaster clearly beats both the
-"predict no motion" static baseline and a direct-regression baseline — and, for the first time
-in this project, beats the regressor outright:</p>
+<p>On held-out data from datasets it trained on, both learned models beat the "predict no
+motion" static baseline by a wide margin. Error at the final predicted frame drops from 33.4cm
+to 14.5cm:</p>
 <table>
-  <tr><th>DexYCB test (n=1200, never touched during training)</th><th>ADE (cm, lower better)</th></tr>
-  <tr><td>static baseline (no motion)</td><td>12.46</td></tr>
-  <tr><td>direct-regression baseline</td><td>7.85</td></tr>
-  <tr><td><strong>diffusion forecaster</strong></td><td><strong>7.52</strong></td></tr>
+  <tr><th>DexYCB test (n=1200, never touched during training)</th><th>ADE (cm)</th><th>final-frame error (cm)</th></tr>
+  <tr><td>static baseline (no motion)</td><td>12.46</td><td>33.36</td></tr>
+  <tr><td><strong>direct-regression baseline</strong></td><td><strong>7.85</strong></td><td><strong>14.50</strong></td></tr>
+  <tr><td>diffusion, best of 5 samples*</td><td>7.43</td><td>15.91</td></tr>
+  <tr><td>diffusion, single sample</td><td>10.45</td><td>20.19</td></tr>
 </table>
+<p style="font-size:0.9rem;color:#555;">*"best of 5" picks the closest sample using the ground
+truth, which the deterministic baselines do not get. Judged on a single sample — what
+deployment actually delivers — the plain regressor is the more accurate model. The diffusion
+model's measurable advantage is the <em>shape of its output distribution</em>: the spread of
+motions it predicts across the dataset is 12.97cm against a ground-truth spread of 12.15cm, so
+it reproduces how much objects really move rather than collapsing or scattering.</p>
 
 <h2>Explore real results</h2>
 <p>The scenes below are <strong>real, pre-computed results</strong> from the exact pipeline
@@ -94,16 +101,20 @@ EgoExo4D video is shown here or anywhere in this demo (licensing — see below),
 are reported in full, including where the model currently loses:</p>
 
 <table>
-  <tr><th></th><th>ADE (cm, lower better)</th><th>diversity (cm)</th></tr>
-  <tr><td>static baseline (no motion)</td><td>19.76</td><td>—</td></tr>
-  <tr><td>diffusion forecaster</td><td>23.83 <em>(loses)</em></td><td>0.24 <em>(collapsed)</em></td></tr>
-  <tr><td>diffusion + OOD confidence gate</td><td>20.87</td><td>—</td></tr>
+  <tr><th></th><th>ADE (cm, lower better)</th><th>motion spread predicted vs real</th></tr>
+  <tr><td><strong>static baseline (no motion)</strong></td><td><strong>19.76</strong></td><td>—</td></tr>
+  <tr><td>direct-regression baseline</td><td>23.41 <em>(loses)</em></td><td>—</td></tr>
+  <tr><td>diffusion forecaster</td><td>23.83 <em>(loses)</em></td><td>0.97 vs 33.30 <em>(collapsed)</em></td></tr>
+  <tr><td>diffusion + OOD confidence gate</td><td>20.93 <em>(still loses)</em></td><td>—</td></tr>
 </table>
-<p style="font-size:0.9rem;color:#555;">Diffusion loses to the static "predict no motion"
-baseline on this genuinely unseen domain, and its sample diversity collapses under distribution
-shift — traced to the model's conditioning not meaningfully distinguishing out-of-distribution
-scenes, not a sampler bug. A cheap inference-time confidence gate recovers most, not all, of the
-gap.</p>
+<p style="font-size:0.9rem;color:#555;">Both learned models lose to the static "predict no
+motion" baseline on this genuinely unseen domain. The diffusion model's motion distribution
+collapses almost completely: it predicts a spread of 0.97cm where real motion spans 33.30cm, and
+all five samples for a given input are effectively identical. An inference-time confidence gate
+recovers part of the gap but does not close it. ForeHand4D's headline result is that imputed
+labels <em>improve</em> zero-shot performance for hands; at this project's pseudo-label scale
+(213 accepted clips) that result does not reproduce for objects. This split is also small
+(n=25), so it is directional rather than conclusive.</p>
 
 <footer>
 <p><strong>Data provenance:</strong> HoloAssist clips (R012-7July-Nespresso,

@@ -73,6 +73,26 @@ def ade_per_timestep(pred: np.ndarray, gt: np.ndarray, mask: np.ndarray = None) 
     return err
 
 
+def dataset_diversity(motions: np.ndarray, n_pairs: int = 500, seed: int = 0) -> float:
+    """mean pairwise L2 between motions drawn from across the dataset, in cm -- ForeHand4D's
+    Diversity (as opposed to Multimodality, which varies the sample for a fixed input). Run it
+    on predictions and on ground truth: a model whose value sits near the GT reference produces
+    a motion distribution of the right spread, while a much larger value means it is scattering
+    predictions rather than modelling the data.
+
+    motions: (K, T, N, 3) displacement from t=0, not absolute position -- absolute coordinates
+    would be dominated by where each object happens to sit in its own scene, which says nothing
+    about motion. Pairs are subsampled since the exact statistic is O(K^2)."""
+    k = motions.shape[0]
+    assert k >= 2, "dataset diversity needs at least 2 motions"
+    rng = np.random.default_rng(seed)
+    i = rng.integers(0, k, size=n_pairs)
+    j = rng.integers(0, k, size=n_pairs)
+    keep = i != j
+    i, j = i[keep], j[keep]
+    return float(np.linalg.norm(motions[i] - motions[j], axis=-1).mean() * 100)
+
+
 def diversity(samples: np.ndarray) -> float:
     """mean pairwise L2 distance between S sampled futures for the same input, per ForeHand4D's
     protocol -- measures how different the diffusion model's samples are from each other, not

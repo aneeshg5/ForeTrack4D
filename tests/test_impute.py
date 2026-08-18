@@ -13,7 +13,6 @@ from foretrack.labeling.impute import (
 
 
 def test_clip_frame_range_matches_holoassist_release_indexing():
-    # int(t * 30), per Ember-HoloAssist/holoassist-release's own frame-index scheme.
     assert clip_frame_range(0.0, 1.0) == (0, 30)
     assert clip_frame_range(1.5, 2.0) == (45, 60)
     assert clip_frame_range(0.033, 0.066) == (0, 1)
@@ -104,7 +103,6 @@ def test_find_nearby_depth_exact_frame_available(tmp_path):
 def test_find_nearby_depth_searches_outward_when_missing(tmp_path):
     ahat_dir = tmp_path / "AhatDepth"
     ahat_dir.mkdir()
-    # frame_number[5] points at a PNG that doesn't exist; frame_number[7] does.
     _write_depth_png(ahat_dir / "000099.png")
     ahat_frame_number = np.array([0, 0, 0, 0, 0, 888, 0, 99, 0, 0], dtype=np.int64)
 

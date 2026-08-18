@@ -36,13 +36,10 @@ def main():
     intrinsics = np.stack([gt["intrinsics"]] * num_frames).astype(np.float32)
 
     query_xyz_t0 = gt["query_xyz_t0"]  # (N, 3), camera frame, same convention TAPIP3D uses
-    # TAPIP3D query_point format: (N, 4) = [query_frame_idx, x, y, z]
     query_point = np.concatenate(
         [np.zeros((len(query_xyz_t0), 1), dtype=np.float32), query_xyz_t0], axis=1
     ).astype(np.float32)
 
-    # no extrinsics key -> TAPIP3D defaults to identity per frame, matching our
-    # own world==camera-frame convention
     np.savez(args.out, video=video, depths=depths, intrinsics=intrinsics, query_point=query_point)
     print(f"wrote {args.out}: video {video.shape}, depths {depths.shape}, query_point {query_point.shape}")
 

@@ -7,8 +7,6 @@ import torch
 import yaml
 from torch.utils.data import DataLoader
 
-# some cluster nodes fail cuDNN handle creation while plain CUDA kernels work; the only conv
-# here is the ViT patch embed, so the fallback costs nothing measurable
 if os.environ.get("FORETRACK_DISABLE_CUDNN"):
     torch.backends.cudnn.enabled = False
 
@@ -66,11 +64,6 @@ def forward_cond(image_encoder, query_tokenizer, batch, device):
 
 @torch.no_grad()
 def sample_diffusion(net, diffusion, cond, query_xyz_t0, shape, device, num_inference_steps=20, eta=1.0):
-    """strided ancestral sampling: only num_inference_steps of the 1000 trained steps are
-    actually run, jumping between them (valid for an x0-prediction model, see p_sample's
-    docstring) -- full 1000-step sampling is far too slow to run at eval scale. eta=1.0 is the
-    standard DDPM ancestral sampler (fully stochastic); eta=0.0 is DDIM's deterministic
-    special case -- see p_sample's docstring."""
     schedule = list(range(diffusion.num_steps - 1, -1, -diffusion.num_steps // num_inference_steps))
     if schedule[-1] != 0:
         schedule.append(0)
@@ -148,11 +141,6 @@ def main():
     )
     args = parser.parse_args()
 
-    # found real run-to-run nondeterminism while validating a p_sample fix: two back-to-back
-    # eval runs of the SAME regressor checkpoint (a plain forward pass, no RNG use at all) gave
-    # ADE 24.54 vs 22.89 -- cudnn's default algorithm-selection heuristic (`benchmark=True`) can
-    # pick different, numerically-non-identical kernels between runs. Fixing this so eval numbers
-    # can actually be compared/trusted across code changes, not just within a single run.
     torch.manual_seed(args.seed)
     torch.backends.cudnn.benchmark = False
 
@@ -172,11 +160,6 @@ def main():
     m = cfg["model"]
 
     def load_cond(ckpt, disable_query_cond=m.get("disable_query_cond", False)):
-        # image_encoder and query_tokenizer are trained jointly with the denoiser/regressor
-        # (see train.py's `params = list(image_encoder.parameters()) + ...` and its checkpoint
-        # dict's "image_encoder"/"query_tokenizer" keys) -- each checkpoint has its own learned
-        # conditioning pathway, not a shared frozen one, so this must be loaded per-checkpoint,
-        # not constructed once and reused across diffusion/regressor.
         ie = ImageEncoder(vit_init=m["vit_init"]).to(device).eval()
         ie.load_state_dict(ckpt["image_encoder"])
         qt = QueryTokenizer(
@@ -207,14 +190,8 @@ def main():
 
     query_tokenizer_uncond = None
     if args.ood_gate and diffusion_net is not None:
-        # disable_query_cond always returns zeros regardless of loaded weights (see
-        # QueryTokenizer.forward), so no checkpoint state to load here.
         query_tokenizer_uncond = QueryTokenizer(latent_dim=m["latent_dim"], dropout_prob=0.0, vit_feat_dim=1280, disable_query_cond=True).to(device).eval()
 
-    # "diffusion" selects the best of S samples using the ground truth (minADE_S, the standard
-    # trajectory-forecasting metric); "diffusion_1" averages the metric over samples instead,
-    # which is what a single draw actually delivers with no oracle to pick with. The baselines
-    # are deterministic, so only the latter compares like with like.
     model_names = ["static", "const_vel", "regressor", "diffusion", "diffusion_1"]
     if args.ood_gate and diffusion_net is not None:
         model_names.append("diffusion_gated")
@@ -229,8 +206,6 @@ def main():
     gt_motions = []
 
     def record_mean_over_samples(name, preds, gt_b, mask_b, fx, fy, visibility_b):
-        """expected metric of one random sample, not the metric of an averaged trajectory --
-        averaging multimodal trajectories would produce a path the model never predicts."""
         results[name].append(float(np.mean([ade(p, gt_b, mask_b) for p in preds])))
         fde_results[name].append(float(np.mean([fde(p, gt_b, mask_b) for p in preds])))
         ff_results[name].append(float(np.mean([ade_first_frame_aligned(p, gt_b, mask_b) for p in preds])))
@@ -339,8 +314,6 @@ def main():
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
-        # the two baselines can track each other almost exactly, so vary linestyle and width:
-        # with a single style the later curve hides the earlier one and the plot looks broken
         styles = {
             "static": dict(color="0.25", ls="--", lw=2.4),
             "const_vel": dict(color="0.55", ls=":", lw=2.0),

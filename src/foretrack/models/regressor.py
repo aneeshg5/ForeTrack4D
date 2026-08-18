@@ -1,10 +1,4 @@
-# transformer regressor baseline: same conditioning + transformer-encoder architecture as
-# TrackDenoiser, no diffusion, single forward pass (mirrors
-# forehand4d's mdm_ff_light). Adapted from src/models/mdm_ff/model.py's forward_pass, corrected:
-# their version concatenates (zero_tokens, cond) then slices [cond_dim:], which is inconsistent
-# with their own diffusion model's (working) (cond, per_timestep_tokens) order in model/mdm.py
-# and would mix zero-token and conditioning-token positions. Uses the mdm.py order instead:
-# conditioning first, then T zero+positional query tokens, slice off the front.
+# Adapted from forehand4d's src/models/mdm_ff/model.py. See NOTICE.md.
 
 import torch
 import torch.nn as nn
@@ -43,10 +37,6 @@ class TrackRegressor(nn.Module):
         self.visibility_head = VisibilityHead(latent_dim=latent_dim, n=n)  # see denoiser.py's comment
 
     def forward(self, cond: torch.Tensor, query_xyz_t0: torch.Tensor) -> tuple:
-        """cond: (num_cond, B, D) conditioning tokens (query tokens etc), dropout already
-        applied by the caller. No noised input, no timestep -- direct regression.
-        query_xyz_t0: (B, N, 3) normalized -- passed straight through to TrackHead, which adds
-        it back as the offset's reference point. Returns (tracks, visibility_logits)."""
         bz = cond.shape[1]
         query_pos = torch.zeros(self.t, bz, self.latent_dim, device=cond.device, dtype=cond.dtype)
         query_pos = query_pos + self.pos_encoder.pe[: self.t]

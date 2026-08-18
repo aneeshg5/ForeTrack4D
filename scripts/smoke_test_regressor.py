@@ -36,18 +36,11 @@ def main():
     print(f"gradients flowed into regressor: {grad_reg}")
     assert grad_reg
 
-    # TrackHead.proj is zero-initialized (predicts an offset from query_xyz_t0, see
-    # track_head.py) -- at exact init, d(loss)/d(tokens) = weight^T @ ... is exactly zero, so
-    # only the head's own weight/bias get gradient on this very first step (ControlNet's "zero
-    # convolution" pattern, intentional). Take one step to move the head off zero before
-    # checking gradient flow to the conditioning pathway.
     opt = torch.optim.SGD(regressor.parameters(), lr=0.1)
     opt.step()
     opt.zero_grad()
     query_tokenizer.zero_grad()
 
-    # cond's (and patch_feats') graph was already consumed by the first backward() -- recompute
-    # the whole conditioning chain fresh rather than reuse either tensor.
     patch_feats2 = image_encoder(images)
     cond2 = query_tokenizer(query_xyz_t0, patch_feats2, query_uv, orig_image_size=(img_h, img_w)).transpose(0, 1)
     pred2, _ = regressor(cond2, query_xyz_t0)

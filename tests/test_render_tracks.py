@@ -54,7 +54,6 @@ def test_video_render_writes_expected_frame_count(tmp_path):
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     cap.release()
-    # cond_idx lead-in + max(T_obs, T_fc) horizon + 1s hold at 10fps
     assert n == cond_idx + max(observed.shape[0], forecast.shape[1]) + 10
     assert (w, h) == (2 * frames.shape[2], frames.shape[1])
 
@@ -81,7 +80,6 @@ def test_demo_video_composite_layout_and_framecount(tmp_path):
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     cap.release()
     assert (w, h) == (2 * frames.shape[2], 2 * frames.shape[1] + 30 + 44)
-    # repeat=3 per source step: lead-in 10 + freeze ~1.6s (8 emits) + horizon 24 + 1s hold (5 emits)
     assert n == 3 * (10 + 8 + 24 + 5)
 
 

@@ -1,16 +1,8 @@
-# Composite forecast-vs-reality demo video. Layout: 2x2 panels (observed video, frozen-frame
-# forecast, orbiting 3D world-space view, live error-vs-horizon chart) with a legend strip and
-# a full-width timeline bar. Both track panels play the real video in sync to the conditioning
-# frame; after it, the observed panel keeps playing real footage while the forecast panel
-# freezes on the conditioning frame and animates predicted trajectories only -- no pixel is
-# ever synthesized.
-
 import cv2
 import numpy as np
 
 from .render_tracks import project_points
 
-# Okabe-Ito colorblind-safe palette, BGR
 SAMPLE_COLORS = [
     (0, 159, 230),    # orange
     (233, 180, 86),   # sky blue
@@ -29,15 +21,12 @@ FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 
 def _put(img, text, org, scale=0.45, color=(235, 235, 235), thick=1):
-    # same-thickness offset shadow: opencv glyph advance grows with stroke thickness, so a
-    # thicker outline pass would extend past the fill and leave ghost tails
     for dx, dy in ((1, 1), (2, 2)):
         cv2.putText(img, text, (org[0] + dx, org[1] + dy), FONT, scale, (0, 0, 0), thick, cv2.LINE_AA)
     cv2.putText(img, text, org, FONT, scale, color, thick, cv2.LINE_AA)
 
 
 def _trail(img, uv, k, color, trail_len, radius=3):
-    """comet trail: positions at timesteps (k - trail_len, k], newest bold. uv: (T, M, 2)."""
     t_hi = min(k, uv.shape[0] - 1)
     for t in range(max(0, t_hi - trail_len + 1), t_hi + 1):
         age = t_hi - t
@@ -55,7 +44,6 @@ def _trail(img, uv, k, color, trail_len, radius=3):
 
 
 def _mark_queries(img, uv0):
-    """rings around the query points at their t=0 positions -- identifies WHAT is forecast."""
     for x, y in uv0:
         if np.isnan(x) or np.isnan(y):
             continue
@@ -63,7 +51,6 @@ def _mark_queries(img, uv0):
 
 
 def _mark_mask(img, mask, alpha=0.3, outline=True):
-    """tint + outline the segmented object -- identifies WHAT is forecast."""
     overlay = img.copy()
     overlay[mask] = (0.55 * np.array(QUERY_COLOR) + 0.45 * overlay[mask]).astype(np.uint8)
     cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, dst=img)
@@ -73,8 +60,6 @@ def _mark_mask(img, mask, alpha=0.3, outline=True):
 
 
 def _select_display_points(query_xyz: np.ndarray, n_show: int) -> np.ndarray:
-    """farthest-point-sample indices of the query set for display -- all points stay in the
-    metrics, only the rendering is thinned."""
     n = query_xyz.shape[0]
     if n <= n_show:
         return np.arange(n)
@@ -87,7 +72,6 @@ def _select_display_points(query_xyz: np.ndarray, n_show: int) -> np.ndarray:
 
 
 class _Orbit3D:
-    """world-space viewport: pinhole-free orbit projection around the t=0 centroid."""
 
     def __init__(self, pts_for_bounds: np.ndarray, w: int, h: int):
         flat = pts_for_bounds.reshape(-1, 3)
@@ -216,16 +200,6 @@ def render_demo_video(
     target_width: int = 720,
     static_camera: bool = True,
 ) -> str:
-    """frames: (F, H, W, 3) uint8 RGB. observed_tracks: (T_obs, N, 3) metric, from cond_idx on.
-    forecast_samples: (S, T, N, 3). Writes the composite mp4 and returns its path. Metrics use
-    all N points; the panels display an FPS-thinned subset of n_show for legibility.
-
-    static_camera: both track sets live in the camera frame at cond_idx, so their 2D projection
-    is only valid from that viewpoint. With a moving (egocentric) camera the observed track is
-    therefore not drawn over later video frames -- the frozen panel carries the comparison,
-    where the projection is exact."""
-    # normalize panel size so text, markers and output resolution are consistent across
-    # datasets; intrinsics must scale with the frames or the projection breaks
     if frames.shape[2] > target_width:
         r = target_width / frames.shape[2]
         frames = np.stack([cv2.resize(f, (int(round(frames.shape[2] * r)), int(round(frames.shape[1] * r)))) for f in frames])
@@ -235,7 +209,6 @@ def render_demo_video(
     h, w = frames.shape[1:3]
     s_count, t_fc = forecast_samples.shape[0], forecast_samples.shape[1]
     t_obs = observed_tracks.shape[0]
-    # rolling out past observed reality leaves a dead left panel; cap unless told otherwise
     horizon = max(t_obs, t_fc) if max_horizon is None else min(max(t_obs, t_fc), max_horizon)
     total = cond_idx + horizon
 
@@ -244,8 +217,6 @@ def render_demo_video(
     forecast_uv = [project_points(forecast_samples[s][:, show], intrinsics) for s in range(s_count)]
     query_uv0 = observed_uv[0]
 
-    # every curve is cut to the animated horizon: a longer observed sequence would otherwise
-    # stretch the chart's x-axis far past what the video actually shows
     t_cmp = min(t_obs, t_fc, horizon)
     def err(pred, gt):
         return np.linalg.norm(pred - gt, axis=-1).mean(axis=1) * 100
@@ -304,7 +275,6 @@ def render_demo_video(
             cv2.rectangle(canvas, (2, 2), (2 * w - 3, 2 * h + LEGEND_H + TIMELINE_H - 3), SAMPLE_COLORS[0], int(2 + 4 * flash))
         return canvas
 
-    # phase 1: shared playback up to the conditioning frame
     for t in range(cond_idx):
         raw = cv2.cvtColor(frames[t], cv2.COLOR_RGB2BGR)
         left, right = raw.copy(), raw.copy()
@@ -312,7 +282,6 @@ def render_demo_video(
         _put(right, "LIVE VIDEO (prediction starts soon)", (10, 22))
         emit(compose(left, right, t))
 
-    # freeze event: mark the forecast target and state the information boundary
     left0 = cond_bgr.copy()
     _put(left0, "WHAT ACTUALLY HAPPENS NEXT", (10, 22))
     right0 = cond_dim.copy()
@@ -325,13 +294,10 @@ def render_demo_video(
     _put(right0, "PREDICTION -- frame frozen on purpose", (10, 22))
     _put(right0, "the model sees ONLY this frame, then predicts", (10, h - 30), 0.46, QUERY_COLOR)
     _put(right0, "where these points move next, in 3D", (10, h - 12), 0.46, QUERY_COLOR)
-    # with no lead-in there is no synced-playback phase, so the freeze card alone has to
-    # establish the information boundary -- hold it longer
     n_freeze = max(1, int(round((2.6 if cond_idx == 0 else 1.6) * playback_fps / repeat)))
     for i in range(n_freeze):
         emit(compose(left0, right0, cond_idx, flash=1.0 - i / n_freeze))
 
-    # phase 2: rollout
     last = None
     for k in range(horizon):
         li = min(cond_idx + k, frames.shape[0] - 1)
@@ -356,7 +322,6 @@ def render_demo_video(
         last = compose(left, right, cond_idx + k)
         emit(last)
 
-    # end hold with computed outcome numbers
     if last is not None:
         fde = [float(np.linalg.norm(forecast_samples[s][t_cmp - 1] - observed_tracks[t_cmp - 1], axis=-1).mean() * 100) for s in range(s_count)]
         best = int(np.argmin(fde))

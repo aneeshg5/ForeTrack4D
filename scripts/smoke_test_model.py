@@ -12,9 +12,6 @@ def main():
     bz, n, t_len, latent_dim = 2, 64, 8, 64
     img_h, img_w = 256, 256
 
-    # skip HaMeR checkpoint loading for this smoke test -- only the architecture is being
-    # verified here, not the pretrained weights (those need a downloaded checkpoint, a separate
-    # setup step not yet done).
     image_encoder = ImageEncoder(vit_init="random").to(device)
     query_tokenizer = QueryTokenizer(latent_dim=latent_dim, dropout_prob=0.1, vit_feat_dim=1280).to(device)
     denoiser = TrackDenoiser(n=n, t=t_len, latent_dim=latent_dim, num_layers=2, num_heads=2, ff_size=128).to(device)
@@ -57,21 +54,11 @@ def main():
     print(f"gradients flowed into denoiser: {grad_found}")
     assert grad_found, "no gradients reached the denoiser"
 
-    # TrackHead.proj is zero-initialized (decision: predict an offset from query_xyz_t0, see
-    # track_head.py) -- d(loss)/d(tokens) = weight^T @ d(loss)/d(pred), which is exactly zero
-    # while weight is exactly zero, so at this literal first step only the head's own
-    # weight/bias get gradient (matches ControlNet's "zero convolution" pattern -- intentional,
-    # not a bug). Take one optimizer step to move the head off zero, then confirm gradient flow
-    # to the conditioning pathway switches on as expected.
     opt = torch.optim.SGD(denoiser.parameters(), lr=0.1)
     opt.step()
     opt.zero_grad()
     query_tokenizer.zero_grad()
 
-    # cond's (and patch_feats') graph was already consumed by the first backward() -- recompute
-    # the whole conditioning chain fresh rather than reuse either tensor, or the second
-    # backward() would try to walk through already-freed graph nodes (image_encoder's and
-    # query_tokenizer's forward passes).
     patch_feats2 = image_encoder(images)
     cond2 = query_tokenizer(query_xyz_t0, patch_feats2, query_uv, orig_image_size=(img_h, img_w)).transpose(0, 1)
     loss2 = diffusion.training_losses(model_fn, x0, cond2, query_xyz_t0, depth)

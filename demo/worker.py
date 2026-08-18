@@ -1,7 +1,3 @@
-# Async job worker. Polls demo/jobs/*/status.json for queued jobs and processes them one at a time --
-# a single-worker, filesystem-backed queue is the right size for a skeleton (no Redis/Celery
-# infrastructure yet); revisit if concurrent jobs become a real need.
-
 import json
 import sys
 import time

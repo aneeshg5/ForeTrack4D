@@ -56,7 +56,6 @@ def test_save_mask_overlay_tints_masked_region_red():
         out_path = f"{d}/overlay.jpg"
         save_mask_overlay(frame, mask, contact_point=(2.0, 2.0), out_path=out_path)
         written = cv2.imread(out_path)
-        # inside the mask, red channel (BGR index 2) should be boosted relative to outside it
         inside_red = written[7, 7, 2]
         outside_red = written[1, 1, 2]
         assert inside_red > outside_red

@@ -23,13 +23,6 @@ from .segment import Sam2ObjectSegmenter, sample_query_points_in_mask, save_mask
 
 
 def clip_frame_range(t_start: float, t_end: float) -> tuple:
-    """Frame indices into the "_sync" streams (Pose_sync, Hands_sync, AhatDepth's own
-    Pose_sync/Timing_sync) and the RGB video, all resampled to the SAME shared 30fps clock --
-    confirmed against a real downloaded session (z095-july-11-22-gladom_disassemble):
-    Video/Pose_sync.txt and AhatDepth/Pose_sync.txt have identical line counts (3554) and an
-    identical final sync_time (118.433s). This indexing scheme (int(t*fps)) also matches
-    Ember-HoloAssist/holoassist-release's own MultiRawDataset._load_sample_dict
-    (`_i = int(t_start * 30) + i`)."""
     return int(t_start * HOLOASSIST_FPS), int(t_end * HOLOASSIST_FPS)
 
 
@@ -53,16 +46,6 @@ def read_video_frames(video_path: str, start_frame: int, end_frame: int) -> np.n
 def find_nearby_depth(
     session_dir: Path, ahat_frame_number: np.ndarray, query_frame: int, search_radius: int = 15
 ) -> tuple:
-    """AHAT's native capture rate is much lower than the 30fps sync clock (confirmed on real
-    data: session R012-7July-Nespresso shipped only 1212 depth PNGs for its ~3670 sync-clock
-    rows), and Timing_sync.txt's nearest-available-frame mapping can point at a native frame
-    number that isn't actually among the PNGs present on disk for a given session (a real,
-    not-rare data gap, not a download error -- confirmed the downloaded archive's byte size
-    matched exactly). Requiring the exact query_frame's own depth would reject many otherwise
-    good clips for this reason alone, so this searches outward (query_frame, +1, -1, +2, -2...)
-    within search_radius sync-clock frames for the nearest one whose AHAT PNG actually exists,
-    on the reasonable assumption that camera pose barely changes within such a small window at
-    30fps. Returns (found_frame_index, depth_mm) or (None, None) if nothing found in range."""
     for offset in range(search_radius + 1):
         for frame in ({query_frame + offset, query_frame - offset} if offset else {query_frame}):
             if not (0 <= frame < len(ahat_frame_number)):
@@ -86,12 +69,6 @@ def build_clip_depths(
     rgb_height: int,
     rgb_width: int,
 ) -> np.ndarray:
-    """One reprojected AHAT depth map (see reproject_depth_to_rgb) per clip frame, in the RGB
-    camera's own frame -- lets TAPIP3D use real sensor depth for the whole clip's tracking
-    instead of its own internal MegaSaM fallback. Frames whose AHAT PNG is
-    missing get an all-zero (fully invalid) depth map rather than failing the whole clip --
-    matches reproject_depth_to_rgb's own no-coverage convention, and TAPIP3D's depth filtering
-    already has to tolerate partial AHAT coverage within a single frame."""
     depths = []
     for frame in range(query_frame, end_frame):
         depth_path = session_dir / "AhatDepth" / ahat_depth_filename(int(ahat_frame_number[frame]))
@@ -111,13 +88,6 @@ def build_clip_depths(
 def process_clip(
     video_name: str, t_start: float, t_end: float, cfg: dict, segmenter: Sam2ObjectSegmenter, out_path: Path
 ) -> bool:
-    """Returns True if the clip was accepted and written to out_path. Uses HoloAssist's native
-    sensors throughout: hand tracking for the SAM2 seed point, and AhatDepth -- reprojected
-    from its own 512x512 camera into the RGB Video camera's pixel space via
-    lift_rgb_query_points (query points) and build_clip_depths/reproject_depth_to_rgb (the
-    full clip, one AHAT frame per RGB frame looked up via AhatDepth/Timing_sync.txt's
-    frame_number column) -- for both the query-point 3D lift AND the full clip's own tracking.
-    TAPIP3D's internal MegaSaM fallback is never invoked as a result."""
     session_dir = Path(cfg["holoassist_root"]) / video_name / "Export_py"
     _, _, cam_poses = parse_pose_file(session_dir / "Video" / "Pose_sync.txt")
     rgb_intrinsics_declared, rgb_size_declared = parse_intrinsics_file(session_dir / "Video" / "Intrinsics.txt")
@@ -132,10 +102,6 @@ def process_clip(
     if query_frame >= min(stream_lens):
         return False
 
-    # Intrinsics.txt's declared size doesn't always match what Video_compress.mp4 actually
-    # decodes to (a separately re-encoded, downscaled copy), so frames must be read BEFORE
-    # intrinsics can be trusted for any
-    # projection, and the declared intrinsics rescaled to the real decoded resolution.
     frames = read_video_frames(session_dir / "Video_compress.mp4", query_frame, end_frame)
     if len(frames) == 0:
         return False
@@ -166,13 +132,6 @@ def process_clip(
     ], axis=0)
     mask = segmenter.object_mask(frames[0], contact, negative_points=negative_points)
     if not mask.any():
-        # a real, expected SAM2 outcome, not a bug: with the hand excluded via negative
-        # prompts, some frames genuinely have no confident non-hand object candidate near the
-        # contact point (e.g. mid-reach, object fully occluded by the other hand). Observed on
-        # real HoloAssist data at scale (4/174 clips in one batch) --
-        # treated as a normal per-clip rejection like the other precondition checks in this
-        # function, not an exception, so a real unattended run (scripts/impute_labels.py has no
-        # try/except around process_clip) doesn't crash partway through a large batch.
         return False
 
     depth_frame, depth_mm = find_nearby_depth(session_dir, ahat_frame_number, query_frame)
@@ -190,25 +149,14 @@ def process_clip(
     query_uv = candidate_uv[valid][:n]
     query_xyz_mathnet = candidate_xyz_mathnet[valid][:n]
 
-    # logged for every clip that reaches this point (mask + contact + enough valid depth),
-    # not just accepted ones -- seeing
-    # rejected clips' masks too is what makes the gallery useful for diagnosing *why* clips
-    # were rejected, not just confirming the accepted ones look right.
     work_dir.mkdir(parents=True, exist_ok=True)
     save_mask_overlay(frames[0], mask, contact, work_dir / "mask_overlay.jpg", query_uv=query_uv)
 
-    # camera(0) == the RGB Video camera at query_frame, opencv convention -- TAPIP3D's
-    # query_point expects points already in this frame under the world-mode
-    # convention (identity extrinsics), not HoloAssist's own SLAM world origin.
     query_xyz_cam0 = world_to_camera_frame(query_xyz_mathnet, cam_poses[query_frame])
     query_point = np.concatenate(
         [np.zeros((n, 1), dtype=np.float32), query_xyz_cam0.astype(np.float32)], axis=-1
     )
 
-    # build depths for exactly as many frames as were actually decoded, not the originally
-    # requested range -- a real re-encoded video can be a few frames shorter than the "_sync"
-    # streams' own frame count (confirmed on real data: 3666 decoded vs. 3670 in Pose_sync.txt
-    # for the same session), and video/depths must have matching T for TAPIP3D's input npz.
     actual_end_frame = query_frame + len(frames)
     clip_depths = build_clip_depths(
         session_dir, query_frame, actual_end_frame, ahat_frame_number, ahat_cam_poses, ahat_intrinsics,

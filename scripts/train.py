@@ -18,11 +18,6 @@ from foretrack.models.regressor import TrackRegressor
 
 
 def worker_init_fn(worker_id: int):
-    # DataLoader worker processes are forked with numpy's global RNG state already seeded
-    # identically, so np.random calls (our scale/pixel-noise augmentation) would otherwise
-    # produce correlated "random" sequences across workers -- a well-known multi-worker
-    # DataLoader pitfall. torch seeds each worker's torch RNG uniquely already; reuse that seed
-    # for numpy too.
     seed = torch.utils.data.get_worker_info().seed % (2**32)
     np.random.seed(seed)
 
@@ -71,9 +66,6 @@ def forward_cond(image_encoder, query_tokenizer, batch, device):
     images = batch["image"].to(device)
     query_xyz_t0 = batch["query_xyz_t0"].to(device)
     query_uv = batch["query_uv"].to(device)
-    # every TrackFramesDataset subclass (DexYCB/ARCTIC/H2O) resizes into the same
-    # CROP_TARGET_SIZE before returning, regardless of the source dataset's native resolution,
-    # so batching across datasets is safe even though their raw frame sizes differ.
     orig_h = batch["orig_image_size"][0][0].item()
     orig_w = batch["orig_image_size"][1][0].item()
 
@@ -83,12 +75,6 @@ def forward_cond(image_encoder, query_tokenizer, batch, device):
 
 
 def make_lr_lambda(warmup_steps: int, total_steps: int, min_lr_ratio: float = 0.01):
-    """linear warmup then cosine decay to min_lr_ratio * base_lr. Added after the first Stage 1
-    attempt (fixed lr=1e-4, no schedule) plateaued around epoch 20-50 on both model types --
-    val_loss stopped improving net while per-step training loss kept looking good, a classic
-    symptom of too-high a fixed LR for jointly fine-tuning a large pretrained backbone (the ViT-H
-    image encoder) alongside a randomly-initialized head. Also caught that our lr (1e-4) was 10x
-    forehand4d's own actual default (1e-5, from src/parsers/configs/mdm.py) -- fixed that too."""
 
     def lr_lambda(step):
         if step < warmup_steps:
@@ -153,7 +139,6 @@ def main():
     args = parser.parse_args()
 
     sys.stdout.reconfigure(line_buffering=True)  # otherwise piped/redirected output doesn't
-    # show up until the process exits, useless for monitoring a long-running job
 
     cfg = load_config(args.config)
     if args.debug and "train_debug" in cfg:
@@ -170,14 +155,7 @@ def main():
     scale_factor = float(cfg["train"].get("scale_factor", 0.0))
     offset_reg_weight = float(cfg["train"].get("offset_reg_weight", 0.0))
     depth_scaled = bool(cfg["diffusion"].get("depth_scaled_loss", True))
-    # visibility head is on by default; use_visibility_loss: false is an explicit opt-out,
-    # matching depth_scaled_loss's toggle pattern.
     use_visibility_loss = bool(cfg["train"].get("use_visibility_loss", True))
-    # decoupled per-model-type override: diffusion's per-step loss already has meaningful
-    # variance from sampling both a timestep and noise draw, so a shared alpha_vis tuned for the
-    # (single-forward-pass) regressor destabilized diffusion training badly
-    # ("visibility head: real, mixed finding"). alpha_vis_<model_type> lets each model type use
-    # its own weight; falls back to the shared alpha_vis key, then to 3.0 (ForeHand4D's value).
     alpha_vis = float(cfg["train"].get(f"alpha_vis_{args.model_type}", cfg["train"].get("alpha_vis", 3.0)))
     print(f"depth_scaled_loss: {depth_scaled}, use_visibility_loss: {use_visibility_loss}, alpha_vis: {alpha_vis}")
     train_ds = build_dataset(cfg, "train", n, t_len, augment=True, noise_factor=noise_factor, scale_factor=scale_factor)
@@ -189,10 +167,6 @@ def main():
 
     image_encoder, query_tokenizer, net, diffusion = build_model(cfg, device, args.model_type)
 
-    # Stage 2. init_ckpt_<model_type> mirrors alpha_vis_<model_type>'s decoupling pattern, since
-    # diffusion and regressor are separate models with separate Stage 1 checkpoints under
-    # ckpt_dir/<model_type>/. Only the three trained submodules are restored; optimizer/
-    # scheduler start fresh, matching ForeHand4D's own stage 2 recipe (finetune, not resume).
     init_ckpt = cfg["train"].get(f"init_ckpt_{args.model_type}", cfg["train"].get("init_ckpt"))
     if init_ckpt:
         state = torch.load(init_ckpt, map_location=device)

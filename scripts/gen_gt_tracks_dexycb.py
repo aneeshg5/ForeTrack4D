@@ -32,8 +32,6 @@ def main():
     if args.limit is not None:
         names, ranges = names[: args.limit], ranges[: args.limit]
 
-    # interleaved striding, not contiguous slicing: keeps shards balanced
-    # even if the split file groups entries by subject/object.
     entries = list(zip(names, ranges))[args.shard_idx :: args.num_shards]
 
     meta_cache = {}
@@ -56,10 +54,6 @@ def main():
                 meta_cache[meta_key] = yaml.safe_load(f)
         num_frames = meta_cache[meta_key]["num_frames"]
 
-        # verified empirically that s3 split ranges always cover the full
-        # sequence; build_track_npz doesn't support partial-range extraction,
-        # so fail loudly here instead of silently processing the wrong frames
-        # if that assumption is ever violated by some entry.
         if tuple(frame_range) != (0, num_frames - 1):
             failures.append((name, f"split range {frame_range} != full sequence (0, {num_frames - 1})"))
             continue

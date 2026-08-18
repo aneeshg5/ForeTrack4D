@@ -1,9 +1,3 @@
-# Standalone forecaster inference for the demo: runs under venv_glacier specifically
-# (venv_labeling carries a different torch version),
-# invoked as a subprocess from src/foretrack/demo_pipeline.py exactly like labeling/run_tapip3d.py
-# already does for TAPIP3D's separate env. Communicates via npz on disk, no GT/baselines needed
-# (unlike scripts/eval.py, which this borrows its model-loading code from).
-
 import argparse
 import os
 from pathlib import Path
@@ -12,8 +6,6 @@ import numpy as np
 import torch
 import yaml
 
-# some cluster nodes fail cuDNN handle creation while plain CUDA kernels work; the only conv
-# here is the ViT patch embed, so the fallback costs nothing measurable
 if os.environ.get("FORETRACK_DISABLE_CUDNN"):
     torch.backends.cudnn.enabled = False
 
@@ -118,8 +110,6 @@ def main():
     samples = np.stack([denormalize_translation(s, transl_mean, transl_std) for s in samples_norm])  # (S, T, N, 3)
     uncond_sample = denormalize_translation(uncond_sample_norm, transl_mean, transl_std)
 
-    # OOD gate signal: how much conditioning changes the prediction, relative to what
-    # in-domain conditioning produces -- reported so the frontend can flag low confidence.
     disagreement_cm = conditioned_disagreement(samples[0], uncond_sample)
     low_confidence = bool(disagreement_cm < DISAGREEMENT_THRESHOLD_CM)
 

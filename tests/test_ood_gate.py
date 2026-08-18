@@ -42,12 +42,9 @@ def test_gated_prediction_custom_threshold():
     pred_uncond = np.full((8, 4, 3), offset, dtype=np.float32)
     pred_static = np.ones((8, 4, 3), dtype=np.float32)
     assert abs(conditioned_disagreement(pred_cond, pred_uncond) - 2.0) < 1e-3
-    # 2cm disagreement: gated with a 5cm threshold, trusted with a 1cm threshold
     np.testing.assert_array_equal(gated_prediction(pred_cond, pred_uncond, pred_static, threshold=5.0), pred_static)
     np.testing.assert_array_equal(gated_prediction(pred_cond, pred_uncond, pred_static, threshold=1.0), pred_cond)
 
 
 def test_default_threshold_matches_calibrated_value():
-    # regression guard: this constant is calibrated against real data --
-    # changing it silently would be a real behavior change, not a refactor.
     assert DISAGREEMENT_THRESHOLD_CM == 3.659

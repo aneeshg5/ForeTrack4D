@@ -7,7 +7,6 @@ import yaml
 
 from .transforms import opencv_camera_pose_for_pyrender
 
-# id -> YCB model folder name, from dex-ycb-toolkit's dex_ycb.py (_YCB_CLASSES)
 YCB_CLASSES = {
     1: "002_master_chef_can",
     2: "003_cracker_box",
@@ -34,7 +33,6 @@ YCB_CLASSES = {
 
 
 def sample_query_points(mesh: trimesh.Trimesh, n: int, seed: int = 0) -> np.ndarray:
-    """farthest-point-sample n points on the mesh surface, canonical object frame."""
     dense, _ = trimesh.sample.sample_surface(mesh, 20000, seed=seed)
     dense = np.asarray(dense, dtype=np.float32)
 
@@ -49,12 +47,6 @@ def sample_query_points(mesh: trimesh.Trimesh, n: int, seed: int = 0) -> np.ndar
 
 
 def transform_to_camera_frame(points: np.ndarray, obj_pose: np.ndarray) -> np.ndarray:
-    """points: (N,3) canonical object frame. obj_pose: (3,4) [R|t].
-    DexYCB stores obj_pose already expressed directly in the camera's own
-    frame per-frame (verified: pose_y differs across camera views for the
-    same timestamp), and DexYCB cameras are static, so camera frame ==
-    world frame here -- no separate extrinsics
-    step needed."""
     R, t = obj_pose[:, :3], obj_pose[:, 3]
     return points @ R.T + t
 
@@ -62,22 +54,6 @@ def transform_to_camera_frame(points: np.ndarray, obj_pose: np.ndarray) -> np.nd
 def render_depth_from_posed_mesh(
     posed_mesh: trimesh.Trimesh, intrinsics: np.ndarray, width: int, height: int
 ) -> np.ndarray:
-    """offscreen z-buffer render of a mesh already posed in camera-frame meters.
-    requires PYOPENGL_PLATFORM=egl for headless cluster nodes. Split out from
-    render_object_depth (which poses a single-rigid-transform mesh, DexYCB's
-    case) so multi-part articulated meshes (ARCTIC: top part gets an extra
-    local rotation the bottom part doesn't) can pose their own vertices first
-    and share this rendering step -- see data/arctic.py.
-
-    doubleSided=True: pyrender's default material is single-sided (backface
-    culled), which silently drops any face whose winding order faces away
-    from the camera from the z-buffer entirely -- caught via ARCTIC's visual
-    sanity check: most query points on a fully-visible,
-    unoccluded box came back marked invisible, because ARCTIC's top/bottom
-    part meshes (and their concatenation) aren't guaranteed consistently
-    wound the way DexYCB's closed YCB scan meshes happen to be. Strictly
-    additive fix -- can only reveal genuinely-visible geometry that was being
-    wrongly culled, never hide anything that was correctly visible before."""
     material = pyrender.MetallicRoughnessMaterial(doubleSided=True)
     scene = pyrender.Scene()
     scene.add(pyrender.Mesh.from_trimesh(posed_mesh, material=material))
@@ -98,7 +74,6 @@ def render_depth_from_posed_mesh(
 def render_object_depth(
     mesh: trimesh.Trimesh, obj_pose: np.ndarray, intrinsics: np.ndarray, width: int, height: int
 ) -> np.ndarray:
-    """offscreen z-buffer render for a single-rigid-transform object (DexYCB)."""
     verts_cam = mesh.vertices @ obj_pose[:, :3].T + obj_pose[:, 3]
     posed = trimesh.Trimesh(vertices=verts_cam, faces=mesh.faces, process=False)
     return render_depth_from_posed_mesh(posed, intrinsics, width, height)
@@ -107,9 +82,6 @@ def render_object_depth(
 def render_visibility(
     points_cam: np.ndarray, intrinsics: np.ndarray, depth: np.ndarray, tol: float = 0.005
 ) -> np.ndarray:
-    """a point is visible if it projects in-bounds, in front of the camera,
-    and within `tol` meters of the rendered z-buffer depth at its pixel
-    (5mm default)."""
     height, width = depth.shape
     z = points_cam[:, 2]
     u = np.round(points_cam[:, 0] / z * intrinsics[0, 0] + intrinsics[0, 2]).astype(int)
@@ -125,9 +97,7 @@ def render_visibility(
 
 
 class _DexYCBLoader(yaml.SafeLoader):
-    """DexYCB's calibration yamls tag plain lists as python/tuple. Extending
-    SafeLoader with just this one constructor (instead of yaml.unsafe_load)
-    avoids enabling arbitrary python object construction from the file."""
+    pass
 
 
 _DexYCBLoader.add_constructor(
@@ -144,10 +114,6 @@ def load_intrinsics(dexycb_root: Path, serial: str) -> np.ndarray:
 
 
 def build_track_npz(seq_dir: str, out_path: str, n: int = 64, vis_tol: float = 0.005) -> None:
-    """seq_dir: a single camera view of a single DexYCB sequence, e.g.
-    <DEX_YCB_DIR>/20200709-subject-01/20200709_141754/836212060125
-    (matches forehand4d's split "names" format: subject/sequence/serial).
-    """
     seq_dir = Path(seq_dir)
     serial = seq_dir.name
     subject_seq_dir = seq_dir.parent

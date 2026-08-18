@@ -62,7 +62,6 @@ def test_apd3d_all_thresholds_pass():
 
 
 def test_apd3d_partial_thresholds_pass():
-    # thresholds at f=500, depth=1m: {0.002, 0.004, 0.008, 0.016, 0.032}m for delta_2d={1,2,4,8,16}
     gt = np.array([[[0.0, 0.0, 1.0]]], dtype=np.float32)
     pred = gt.copy()
     pred[..., 0] = 0.01  # 1cm error: passes only the 0.016 and 0.032 thresholds -> 2/5

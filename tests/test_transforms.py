@@ -30,7 +30,6 @@ def test_mathnet_round_trip():
 
 
 def test_mathnet_forward_axis_maps_to_opencv_z():
-    # mathnet (1, 0, 0) is "forward" -> should land on opencv's forward axis, +z
     forward = np.array([[1.0, 0.0, 0.0]], dtype=np.float32)
     out = mathnet_to_opencv(forward)
     np.testing.assert_allclose(out, [[0.0, 0.0, 1.0]], atol=1e-6)

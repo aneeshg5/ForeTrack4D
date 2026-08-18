@@ -48,10 +48,6 @@ def test_parse_pose_file(tmp_path):
 
 def test_parse_intrinsics_file(tmp_path):
     path = tmp_path / "Intrinsics.txt"
-    # real format (confirmed against a downloaded HoloAssist session):
-    # single line, 25 fields, no leading time -- fields[:9] is the 3x3 K matrix directly,
-    # fields[-2:] is (width, height). Middle fields (radial/tangential distortion etc.) are
-    # ignored, matching taeinkwon/PyHoloAssist's own parser.
     k_fields = ["500.0", "0", "320.0", "0", "505.0", "240.0", "0", "0", "1"]
     middle = [str(0.0)] * 14
     trailing = ["640", "480"]
@@ -72,8 +68,6 @@ def test_scale_intrinsics_uniform_half_scale():
 
 
 def test_scale_intrinsics_nonuniform_axes():
-    # a real case: declared and actual sizes don't share exactly the same aspect ratio
-    # (H.264 macroblock rounding), so x and y must scale independently.
     intrinsics = np.array([[681.388, 0, 445.448], [0, 682.386, 237.431], [0, 0, 1]])
     scaled = scale_intrinsics(intrinsics, declared_size=(896, 504), actual_size=(454, 256))
     np.testing.assert_allclose(scaled[0, 0], 681.388 * 454 / 896, atol=1e-3)
@@ -119,8 +113,6 @@ def test_parse_hand_file_rejects_bad_column_count(tmp_path):
 
 
 def test_project_to_pixels_point_directly_ahead():
-    # camera at world origin, identity pose (mathnet basis: x=forward). A point 2 units
-    # straight ahead (mathnet +x) should project to the principal point.
     cam_pose = np.eye(4)
     point_world = np.array([[2.0, 0.0, 0.0]])
     intrinsics = np.array([[500.0, 0, 320.0], [0, 500.0, 240.0], [0, 0, 1]])
@@ -129,8 +121,6 @@ def test_project_to_pixels_point_directly_ahead():
 
 
 def test_project_to_pixels_point_to_the_left():
-    # mathnet +y is "left" -- a point to the camera's left should land left of center (smaller
-    # u) once converted to opencv's x-right pixel convention.
     cam_pose = np.eye(4)
     point_world = np.array([[2.0, 1.0, 0.0]])
     intrinsics = np.array([[500.0, 0, 320.0], [0, 500.0, 240.0], [0, 0, 1]])
@@ -211,15 +201,11 @@ def test_hand_contact_point_returns_none_when_untracked():
 
 
 def test_hand_contact_point_returns_none_when_outside_frame():
-    # HoloLens hand tracking has a wider FOV than the RGB video camera -- a tracked joint can
-    # legitimately project outside the RGB frame's bounds, and this must not be treated as a
-    # usable contact point.
     joints = _make_joints()
     valid = np.ones(NUM_HAND_JOINTS, dtype=bool)
     tracked = np.ones(NUM_HAND_JOINTS, dtype=bool)
     cam_pose = np.eye(4)
     intrinsics = np.array([[500.0, 0, 320.0], [0, 500.0, 240.0], [0, 0, 1]])
-    # joint projects to (320, 240) -- give it a tiny frame it can't possibly land inside.
     assert hand_contact_point(joints, valid, tracked, cam_pose, intrinsics, 10, 10) is None
 
 
@@ -231,7 +217,6 @@ def test_best_hand_contact_point_falls_back_to_tracked_hand():
     cam_pose = np.eye(4)
     intrinsics = np.array([[500.0, 0, 320.0], [0, 500.0, 240.0], [0, 0, 1]])
 
-    # left hand untracked, right hand tracked -> should return right's projection
     pt = best_hand_contact_point(
         joints, all_valid, none_tracked, joints, all_valid, all_tracked, cam_pose, intrinsics, 640, 480
     )
@@ -239,9 +224,6 @@ def test_best_hand_contact_point_falls_back_to_tracked_hand():
 
 
 def test_hand_landmark_pixels_returns_only_in_front_tracked_joints():
-    # _make_joints: PALM_JOINT_INDEX is 2 units in front of the camera; every other joint sits
-    # at the world origin, i.e. z=0 in camera space -- not strictly in front, so
-    # hand_landmark_pixels should drop them and return only the palm joint's projection.
     joints = _make_joints()
     valid = np.ones(NUM_HAND_JOINTS, dtype=bool)
     tracked = np.ones(NUM_HAND_JOINTS, dtype=bool)
@@ -269,7 +251,6 @@ def test_hand_landmark_pixels_excludes_out_of_bounds_joint():
     tracked = np.ones(NUM_HAND_JOINTS, dtype=bool)
     cam_pose = np.eye(4)
     intrinsics = np.array([[500.0, 0, 320.0], [0, 500.0, 240.0], [0, 0, 1]])
-    # palm projects to (320, 240) -- give it a tiny frame it can't possibly land inside.
     uv = hand_landmark_pixels(joints, valid, tracked, cam_pose, intrinsics, 10, 10)
     assert uv.shape == (0, 2)
 
@@ -325,7 +306,6 @@ def test_unproject_depth_offset_camera():
 
 
 def test_lift_rgb_query_points_same_camera():
-    # depth camera == RGB camera: should reduce to a direct unprojection at the query pixel.
     intrinsics = np.array([[500.0, 0, 320.0], [0, 500.0, 240.0], [0, 0, 1]])
     cam_pose = np.eye(4)
     depth = np.zeros((480, 640), dtype=np.uint16)
@@ -346,8 +326,6 @@ def test_lift_rgb_query_points_no_nearby_depth_returns_nan():
 
 
 def test_reproject_depth_to_rgb_same_camera_round_trips():
-    # depth camera == RGB camera: reprojecting should reproduce the same depth values at the
-    # same pixels (up to rounding), since every point projects back to where it came from.
     intrinsics = np.array([[500.0, 0, 320.0], [0, 500.0, 240.0], [0, 0, 1]])
     cam_pose = np.eye(4)
     depth = np.zeros((480, 640), dtype=np.uint16)
@@ -379,10 +357,6 @@ def test_reproject_depth_to_rgb_uncovered_pixels_are_zero_not_nan():
 
 
 def test_reproject_depth_to_rgb_zbuffer_keeps_nearest():
-    # two adjacent depth-source pixels that reproject to the SAME rgb output pixel (rgb camera
-    # has a much smaller focal length, so a 1px depth-space offset rounds away in rgb space) --
-    # the z-buffer must keep the nearer (smaller-depth) point, not just whichever was written
-    # last (source pixel iteration order isn't guaranteed).
     depth_intrinsics = np.array([[500.0, 0, 320.0], [0, 500.0, 240.0], [0, 0, 1]])
     rgb_intrinsics = np.array([[50.0, 0, 32.0], [0, 50.0, 24.0], [0, 0, 1]])
     cam_pose = np.eye(4)

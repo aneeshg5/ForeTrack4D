@@ -1,7 +1,3 @@
-# Demo orchestration. Runs under venv_labeling (SAM2 + mediapipe + torch), which calls out
-# to venv_tapip3d (labeling/run_tapip3d.py) and venv_glacier (scripts/forecast_infer.py) via
-# subprocess, matching the labeling pipeline's environment boundaries.
-
 import subprocess
 from pathlib import Path
 
@@ -22,15 +18,10 @@ from .viz.demo_video import render_demo_video
 from .viz.render_tracks import render_forecast_vs_reality
 
 MAX_DURATION_S = 15.0
-# mean abs per-pixel intensity change between consecutive frames (0-255 scale) flagged as a
-# likely scene cut: continuous handheld footage rarely exceeds ~15-20 even during fast motion,
-# an actual cut jumps far higher.
 CUT_DIFF_THRESHOLD = 40.0
 
 
 def estimate_intrinsics(h: int, w: int) -> np.ndarray:
-    """Uploaded video has no camera calibration; approximate with fx=fy=max(h,w) (~50-55deg
-    FOV, typical for phone cameras) and the principal point at image center."""
     f = float(max(h, w))
     return np.array([[f, 0, w / 2], [0, f, h / 2], [0, 0, 1]], dtype=np.float32)
 
@@ -41,8 +32,6 @@ def detect_likely_cuts(frames: np.ndarray) -> list:
 
 
 def validate_video(frames: np.ndarray, fps: float, hand_model_path: str, max_duration_s: float = MAX_DURATION_S) -> tuple:
-    """Rejection gates: single shot, hands visible, length cap. Zoom detection is not
-    implemented; it would need known intrinsics or optical-flow analysis."""
     n_frames = len(frames)
     duration = n_frames / fps
     if duration > max_duration_s:
@@ -80,10 +69,6 @@ def run_demo_job(
     k_samples: int = 5,
     sam2_device: str = "cuda",
 ) -> dict:
-    """Full demo job: validate -> pick conditioning frame -> detect hand+object -> run
-    TAPIP3D+MegaSaM on the clip suffix starting at the conditioning frame ("observed reality")
-    -> run the forecaster from that same frame -> render forecast-vs-reality. Returns a dict
-    with status "rejected" (+ reason) or "done" (+ results)."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -114,17 +99,11 @@ def run_demo_job(
     if not mask.any():
         return {"status": "rejected", "reason": "no manipulated object found near the detected hand -- make sure the object is clearly visible and being held"}
 
-    # 64 queries need real spatial support: a tiny mask collapses them onto a few pixels
-    # (sampled with replacement), which is far outside the training manifold and produces
-    # garbage forecasts -- reject honestly instead
     if int(mask.sum()) < 300:
         return {"status": "rejected", "reason": "could not isolate the manipulated object (segmentation too small) -- try a frame where the object is clearly visible"}
     np.save(out_dir / "mask.npy", mask)
     query_uv_full = sample_query_points_in_mask(mask, n=64)
 
-    # crop + preprocess the conditioning frame exactly like training preprocessing
-    # (data/dexycb.py's TrackFramesDataset.__getitem__), so the forecaster sees input matching
-    # what it was trained on, not a raw/differently-scaled frame.
     x0, y0, x1, y1 = compute_object_crop(query_uv_full, h, w, image=cond_frame)
     crop = cond_frame[int(round(y0)):int(round(y1)), int(round(x0)):int(round(x1))]
     crop_h, crop_w = crop.shape[:2]
@@ -132,9 +111,6 @@ def run_demo_job(
     query_uv_crop = query_uv_full - np.array([x0, y0], dtype=np.float32)
     query_uv_crop = query_uv_crop * np.array([CROP_TARGET_SIZE[1] / crop_w, CROP_TARGET_SIZE[0] / crop_h], dtype=np.float32)
 
-    # observed reality: TAPIP3D+MegaSaM on the SUFFIX of the clip starting at the conditioning
-    # frame, not the full clip -- sidesteps TAPIP3D's forward-only/query-at-t=0 limitation by
-    # construction, and matches the forecaster's own directionality (it only ever predicts the future).
     observed_video = frames[cond_idx:]
     observed_out = out_dir / "observed.npz"
     run_tapip3d(
@@ -145,9 +121,6 @@ def run_demo_job(
     observed = np.load(observed_out)
     observed_tracks = observed["tracks"]  # (T_obs, N, 3), starts at the conditioning frame
 
-    # the forecaster needs query_xyz_t0 (3D, not just pixel coords) -- reuse TAPIP3D's own t=0
-    # lift (== the conditioning frame, since observed_video starts there) rather than a second,
-    # independent depth estimate that could disagree with what "reality" is being compared against.
     query_xyz_t0 = observed_tracks[0]
 
     forecast_input = out_dir / "forecast_input.npz"
@@ -168,8 +141,6 @@ def run_demo_job(
     forecast = np.load(forecast_output)
     forecast_samples = forecast["samples"]  # (S, T, N, 3)
 
-    # live ADE-vs-horizon of each forecast sample against observed reality -- no GT exists to
-    # pick a single "best" sample, so all K curves are reported.
     t_compare = min(observed_tracks.shape[0], forecast_samples.shape[1])
     ade_curves = [
         ade_per_timestep(forecast_samples[s, :t_compare], observed_tracks[:t_compare]).tolist()

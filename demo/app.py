@@ -1,7 +1,3 @@
-# Thin frontend.
-# Upload -> queue -> results page. No model/data logic here -- everything real lives in
-# src/foretrack/demo_pipeline.py, run by worker.py, not this process.
-
 import json
 import uuid
 from pathlib import Path

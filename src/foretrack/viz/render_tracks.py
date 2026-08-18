@@ -1,9 +1,3 @@
-# Forecast-vs-reality overlay: projects 3D tracks to 2D via intrinsics and
-# draws them on the conditioning frame, saturation fading with time (ForeHand4D's visual
-# language) so early timesteps are bold and later, more uncertain ones fade out. K forecast
-# samples get distinct colors so their spread (or collapse) is visible at a glance; the observed
-# (TAPIP3D) track is drawn separately in a fixed color for contrast.
-
 import cv2
 import numpy as np
 
@@ -14,9 +8,6 @@ FORECAST_COLORS = [  # BGR, distinct hues for up to 5 samples before cycling
 
 
 def project_points(points: np.ndarray, intrinsics: np.ndarray) -> np.ndarray:
-    """points: (..., 3) metric camera-frame coords -> (..., 2) pixel coords. Points behind the
-    camera (z <= 0) are returned as NaN so callers can skip drawing them rather than plotting a
-    nonsensical projection."""
     fx, fy, cx, cy = intrinsics[0, 0], intrinsics[1, 1], intrinsics[0, 2], intrinsics[1, 2]
     z = points[..., 2]
     uv = np.stack([points[..., 0] / z * fx + cx, points[..., 1] / z * fy + cy], axis=-1)
@@ -25,9 +16,6 @@ def project_points(points: np.ndarray, intrinsics: np.ndarray) -> np.ndarray:
 
 
 def _draw_faded_track(img: np.ndarray, uv: np.ndarray, color: tuple, mask: np.ndarray = None) -> None:
-    """uv: (T, N, 2) pixel coords for one track (one observed sequence, or one forecast sample).
-    Draws every point as a small dot, alpha-faded from 1.0 at t=0 to a fixed floor at the last
-    timestep so the whole track is always visible, not exactly invisible by the end."""
     t_len = uv.shape[0]
     for t in range(t_len):
         if mask is not None and not mask[t]:
@@ -49,11 +37,6 @@ def render_forecast_vs_reality(
     out_path: str,
     observed_mask: np.ndarray = None,
 ) -> None:
-    """frame: (H, W, 3) uint8 RGB, the conditioning frame. observed_tracks: (T_obs, N, 3) metric,
-    TAPIP3D's tracked reality from the conditioning frame onward. forecast_samples: (S, T, N, 3)
-    metric, K sampled forecasts from the model. intrinsics: (3, 3), the same camera model both
-    track sets are expressed in. Writes a single annotated frame to out_path -- one static image,
-    not a rendered video."""
     img = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR).copy()
 
     observed_uv = project_points(observed_tracks, intrinsics)
@@ -68,8 +51,6 @@ def render_forecast_vs_reality(
 
 
 def _draw_trail(img: np.ndarray, uv: np.ndarray, k: int, color: tuple, trail_len: int, mask: np.ndarray = None) -> None:
-    """Draws track positions at timesteps (k - trail_len, k], newest bold, older fading -- a
-    comet trail showing recent motion, unlike _draw_faded_track's whole-horizon fade. uv: (T, N, 2)."""
     t_hi = min(k, uv.shape[0] - 1)
     for t in range(max(0, t_hi - trail_len + 1), t_hi + 1):
         if mask is not None and not mask[t]:
@@ -105,18 +86,6 @@ def render_forecast_vs_reality_video(
     trail_len: int = 12,
     hold_s: float = 1.5,
 ) -> str:
-    """Side-by-side mp4: both panels play the real video up to the conditioning frame; then the
-    left (REALITY) continues playing with TAPIP3D's observed tracks overlaid, while the right
-    (FORECAST) freezes on the conditioning frame and animates the K sampled forecast trails over
-    it. No pixel is ever synthesized -- the right panel is a real, frozen frame with predicted
-    point trajectories drawn on top, which is why this stays on the right side of the "never
-    call it generated video" rule: the freeze makes it visually unmistakable that only the
-    tracks, not the imagery, are predicted.
-
-    frames: (F, H, W, 3) uint8 RGB, the full uploaded video. observed_tracks: (T_obs, N, 3)
-    metric, starting at cond_idx. forecast_samples: (S, T, N, 3). Timesteps map 1:1 to video
-    frames (both track sets are per-frame of the clip suffix, same convention demo_pipeline
-    uses for its ADE comparison). Returns the path actually written."""
     h, w = frames.shape[1:3]
     observed_uv = project_points(observed_tracks, intrinsics)
     forecast_uv = np.stack([project_points(forecast_samples[s], intrinsics) for s in range(forecast_samples.shape[0])])
@@ -124,8 +93,6 @@ def render_forecast_vs_reality_video(
     horizon = max(observed_tracks.shape[0], forecast_samples.shape[1])
     cond_frame_bgr = cv2.cvtColor(frames[cond_idx], cv2.COLOR_RGB2BGR)
 
-    # avc1 (H.264) plays natively in browsers; opencv builds without it fall back to mp4v,
-    # which most browsers refuse -- the worker should re-encode with ffmpeg in that case.
     writer = None
     for fourcc in ("avc1", "mp4v"):
         writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*fourcc), fps, (2 * w, h))

@@ -1,9 +1,4 @@
-# adapted from forehand4d's src/models/mdm/model/mdm.py (MDM class, arch='trans_enc'),
-# hand-specific (MANO/rotation) terms removed per decision 5. Per-timestep token = linear
-# projection of the flattened (N, 3) noised coords, mirroring MDM's InputProcess.poseEmbedding
-# almost exactly (192 dims here vs. their 198-dim hand token) -- decision 3. Also keeps their
-# 2D-projection Fourier term (see project_angle_fourier below), and the TimestepEmbedder trick
-# of reusing the sinusoidal position table as a timestep-indexed lookup.
+# Adapted from forehand4d's src/models/mdm/model/mdm.py (MDM, arch='trans_enc'). See NOTICE.md.
 
 import math
 
@@ -15,9 +10,6 @@ from .heads.visibility_head import VisibilityHead
 
 
 class PositionalEncoding(nn.Module):
-    """sinusoidal table, used both as a per-position embedding added to the transformer input
-    and (via TimestepEmbedder) as a lookup table for the diffusion timestep embedding -- mirrors
-    MDM's dual use of the same table."""
 
     def __init__(self, latent_dim: int, max_len: int = 5000):
         super().__init__()
@@ -44,12 +36,6 @@ class TimestepEmbedder(nn.Module):
 
 
 def project_angle_fourier(xyz: torch.Tensor, freq: int = 4) -> torch.Tensor:
-    """equivalent to forehand4d's compute_kpe_enc (project to pixels with intrinsics, then
-    arctan2 the offset from the principal point) but derived directly from the 3D point: for an
-    ideal pinhole camera, arctan2(fx*X/Z, fx) == arctan2(X/Z, 1) == arctan2(X, Z) -- the focal
-    length cancels, so routing through pixel space is a no-op once we already have the 3D point.
-    Robust to points behind/outside the frame by construction; this term helps the model
-    reason about out-of-frame points."""
     x_angle = torch.atan2(xyz[..., 0], xyz[..., 2].clamp(min=1e-6))
     y_angle = torch.atan2(xyz[..., 1], xyz[..., 2].clamp(min=1e-6))
     angle = torch.stack([x_angle, y_angle], dim=-1)  # (..., 2)
@@ -92,16 +78,9 @@ class TrackDenoiser(nn.Module):
         )
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.head = TrackHead(latent_dim=latent_dim, n=n)
-        # visibility is not part of the diffusion state (it isn't noised/denoised), so it's a
-        # side-output only used
-        # for the auxiliary training loss -- p_sample discards it during sampling.
         self.visibility_head = VisibilityHead(latent_dim=latent_dim, n=n)
 
     def forward(self, x_noisy: torch.Tensor, timestep: torch.Tensor, cond: torch.Tensor, query_xyz_t0: torch.Tensor) -> tuple:
-        """x_noisy: (B, T, N, 3) noised, normalized coords. timestep: (B,). cond: (num_cond, B, D)
-        conditioning tokens (query tokens etc), dropout already applied by the caller.
-        query_xyz_t0: (B, N, 3) normalized -- passed straight through to TrackHead, which adds
-        it back as the offset's reference point. Returns (tracks, visibility_logits)."""
         bz, t_dim, n, _ = x_noisy.shape
 
         coord_tok = self.coord_embed(x_noisy.reshape(bz, t_dim, n * 3))

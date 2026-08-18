@@ -38,8 +38,6 @@ def main():
     for split, entries in protocol.items():
         if args.limit is not None:
             entries = entries[: args.limit]
-        # interleaved striding, not contiguous slicing: keeps shards balanced even though the
-        # split file groups entries by subject.
         shard_entries = entries[args.shard_idx :: args.num_shards]
 
         split_out_dir = out_dir / split

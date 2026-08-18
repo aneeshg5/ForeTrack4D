@@ -8,12 +8,10 @@ def test_compute_object_crop_basic_no_image():
     x0, y0, x1, y1 = compute_object_crop(query_uv, img_h=480, img_w=640)
     assert 0 <= x0 < x1 <= 640
     assert 0 <= y0 < y1 <= 480
-    # target aspect ratio (192/256) preserved
     assert abs((x1 - x0) / (y1 - y0) - 192 / 256) < 1e-3
 
 
 def test_compute_object_crop_clips_to_image_bounds():
-    # query points near the top-left corner -- naive padding would go negative
     query_uv = np.array([[5.0, 5.0], [8.0, 8.0]], dtype=np.float32)
     x0, y0, x1, y1 = compute_object_crop(query_uv, img_h=480, img_w=640)
     assert x0 >= 0 and y0 >= 0
@@ -29,10 +27,6 @@ def test_compute_object_crop_no_op_when_image_has_no_black_region():
 
 
 def test_compute_object_crop_shrinks_to_avoid_black_vignette():
-    # a real EgoExo4D-style scenario: query points where the naive generously-padded crop
-    # would extend into a black (invalid, e.g. undistorted-fisheye-corner) region that the
-    # object's own tight bounding box does not touch -- confirmed via real crop inspection
-    # (2/5 sampled EgoExo4D crops had a black-vignette intrusion).
     img_h, img_w = 1408, 1408
     image = np.full((img_h, img_w, 3), 200, dtype=np.uint8)
     image[:, :450] = 0  # vertical black band, e.g. a vignette region to one side
@@ -52,9 +46,6 @@ def test_compute_object_crop_shrinks_to_avoid_black_vignette():
 
 
 def test_compute_object_crop_gives_up_gracefully_when_black_is_unavoidable():
-    # query points themselves sit inside a fully black region -- no crop position can avoid
-    # invalid content; the function should still return a valid, in-bounds box (not crash or
-    # loop forever), floored at padding_frac=0.1.
     img_h, img_w = 400, 400
     image = np.zeros((img_h, img_w, 3), dtype=np.uint8)
     query_uv = np.array([[200.0, 200.0], [210.0, 210.0]], dtype=np.float32)

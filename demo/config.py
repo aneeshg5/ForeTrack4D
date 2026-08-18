@@ -1,5 +1,3 @@
-# Deployment-specific paths for this host; update explicitly when running elsewhere.
-
 REPO_ROOT = "/home/aneeshg5/foretrack4d"
 
 HAND_MODEL_PATH = "/data01/aneeshg5/hand_landmarker.task"
@@ -12,8 +10,6 @@ TAPIP3D_CHECKPOINT = f"{REPO_ROOT}/third_party/tapip3d/checkpoints/tapip3d_final
 
 FORECAST_PYTHON = f"{REPO_ROOT}/venv_glacier/bin/python"
 FORECAST_SCRIPT = f"{REPO_ROOT}/scripts/forecast_infer.py"
-# expanded-data Stage 2 diffusion checkpoint -- diffusion is the mandated primary architecture, not
-# the regressor, even though it doesn't yet have an OOD-gated regressor counterpart.
 FORECAST_CONFIG = f"{REPO_ROOT}/configs/mixed_stage2_diffusion_lowlr_expanded.yaml"
 FORECAST_CHECKPOINT = "/data01/aneeshg5/model_ckpts/foretrack4d/mixed_stage2_diffusion_lowlr_expanded/diffusion/epoch20.pt"
 

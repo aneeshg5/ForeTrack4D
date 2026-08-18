@@ -55,7 +55,7 @@ Source: https://github.com/microsoft/psi
   ICameraIntrinsics.cs`'s own docstring) were read from this repo's source to derive our
   parser. Note: this generic exporter's own multi-line, per-frame `Intrinsics.txt` shape does
   NOT match HoloAssist's real released files (a single whole-session line instead -- see the
-  taeinkwon/PyHoloAssist entry below and checkpoints.md); this source was useful for the
+  taeinkwon/PyHoloAssist entry below); this source was useful for the
   MathNet-basis confirmation and the "_sync" file byte offsets, not for `Intrinsics.txt`'s
   layout. No code is copied, the format itself (a Microsoft-authored capture pipeline, not
   part of the CC BY-NC/Apache-2.0 codebases above) is what's being interoperated with.

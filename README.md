@@ -5,7 +5,7 @@ and a set of query points on the object, a conditional diffusion model predicts 
 points travel in metric 3D over the next several seconds. The output is 3D point tracks, not
 pixels.
 
-![gelatin box forecast](docs/media/gelatin_box.gif)
+![gelatin box forecast](assets/gelatin_box.gif)
 
 *Left: the real video. Right: frozen at the moment of prediction — colored trails are five
 sampled futures, white is what actually happened. Bottom: the same tracks in metric 3D, and
@@ -55,7 +55,7 @@ maximize it. Mean pairwise L2 between motions across the dataset:
 In-domain the model matches real motion spread closely. Out of domain it collapses — all five
 samples become near-identical.
 
-![egocentric forecast](docs/media/h2o_milk_ego.gif)
+![egocentric forecast](assets/h2o_milk_ego.gif)
 
 *H2O, held-out test split: same model, egocentric moving camera.*
 

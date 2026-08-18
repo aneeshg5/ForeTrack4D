@@ -5,11 +5,12 @@ and a set of query points on the object, a conditional diffusion model predicts 
 points travel in metric 3D over the next several seconds. The output is 3D point tracks, not
 pixels.
 
-![gelatin box forecast](assets/gelatin_box.gif)
+![gelatin box forecast](assets/dexycb_gelatin_box.gif)
 
-*Left: the real video. Right: frozen at the moment of prediction — colored trails are five
-sampled futures, white is what actually happened. Bottom: the same tracks in metric 3D, and
-error against the "object never moves" baseline. DexYCB held-out test split.*
+*Left: the real video. Right: frozen at the moment of prediction — orange is the model's
+forecast, white is what actually happened. Below: error against the "object never moves"
+baseline, which climbs to 46.7cm while the forecast stays at 7.6cm. DexYCB held-out test split;
+the trace shown is the closest of 5 sampled futures.*
 
 ForeHand4D forecasts **hands** from a single image and names object motion as future work.
 ForeTrack4D is that follow-on: the same diffusion recipe retargeted to objects, using TAPIP3D
@@ -55,11 +56,16 @@ maximize it. Mean pairwise L2 between motions across the dataset:
 In-domain the model matches real motion spread closely. Out of domain it collapses — all five
 samples become near-identical.
 
-![egocentric forecast](assets/h2o_milk_ego.gif)
+![foam brick forecast](assets/dexycb_foam_brick.gif)
 
-*H2O, held-out test split: same model, egocentric moving camera.*
+*A different object and grasp, held-out val split: 8.7cm final error against a 48.5cm baseline.*
 
-## What does not work
+![egocentric forecast](assets/h2o_milk_egocentric.gif)
+
+*Same model on a head-mounted camera, where the viewpoint itself moves. H2O held-out test split:
+5.2cm final error against a 12.9cm baseline.*
+
+## Limitations
 
 - **Out-of-domain, a static baseline wins.** On HoloAssist (5.32 vs 8.49) and EgoExo4D
   zero-shot (19.76 vs 23.83), predicting no motion beats the model. ForeHand4D's headline
@@ -70,30 +76,6 @@ samples become near-identical.
 - **Small out-of-domain eval sets** (n = 43 and n = 25); those rows are directional only.
 - **No published-method baseline.** Comparisons are against static, constant velocity, and a
   same-architecture regressor.
-
-## Demo
-
-`demo/` is an async upload → queue → results web demo: pick a conditioning frame, and the
-backend tracks observed reality with TAPIP3D + MegaSaM, samples forecasts, and renders the
-comparison above. See `demo/README.md`. Rendered clips are illustrative — they were selected
-by ranking on forecast quality, so the tables above are the evidence, not the clips.
-
-## Engineering
-
-3D perception and generative modelling end to end: mesh-and-pose ground-truth track generation
-with z-buffer visibility, a conditional diffusion transformer, multi-dataset training with
-per-dataset normalization, and an automated pseudo-labeling pipeline (SAM 2 → depth lift →
-TAPIP3D → quality gates) for video with no 3D labels.
-
-Evaluation is the part that mattered most: ADE/FDE, alignment-invariant variants, TAPVid-3D's
-depth-adaptive APD3D, distribution-level diversity against a ground-truth reference, and
-error-vs-horizon curves — with an oracle-free single-sample row so the diffusion model is
-compared like-for-like against deterministic baselines.
-
-Runs across three mutually incompatible Python environments (training, TAPIP3D + MegaSaM, SAM 2
-+ mediapipe) that communicate by subprocess and `.npz` on disk, on a multi-GPU cluster.
-
-**Stack** — PyTorch, diffusion models, ViT, SAM 2, TAPIP3D, MegaSaM, OpenCV, Flask.
 
 ## Setup
 

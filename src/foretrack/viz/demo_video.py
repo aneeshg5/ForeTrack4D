@@ -106,11 +106,13 @@ class _Orbit3D:
 
 
 def _chart_panel(w, h, curves, static_curve, k, fps, y_max):
+    title = ("SCOREBOARD: how far off is the prediction? (cm, lower = better)" if len(curves) == 1
+             else "SCOREBOARD: how far off is each predicted future? (cm, lower = better)")
     img = np.full((h, w, 3), BG, np.uint8)
     ml, mr, mt, mb = 52, 14, 46, 34
     pw, ph = w - ml - mr, h - mt - mb
     t_max = max(len(static_curve), max(len(c) for c in curves))
-    _put(img, "SCOREBOARD: how far off is each predicted future? (cm, lower = better)", (ml, 20), 0.44)
+    _put(img, title, (ml, 20), 0.44)
     _put(img, "measured against where the object's points actually went", (ml, 38), 0.38, (160, 160, 160))
     for frac in (0.0, 0.5, 1.0):
         y = int(mt + ph * (1 - frac))
@@ -145,7 +147,7 @@ def _chart_panel(w, h, curves, static_curve, k, fps, y_max):
     return img
 
 
-def _legend(w, s_count):
+def _legend(w, s_count, sample_label=None):
     img = np.full((LEGEND_H, w, 3), (16, 15, 14), np.uint8)
     x = 14
     cv2.circle(img, (x, LEGEND_H // 2), 5, OBSERVED_COLOR, -1)
@@ -154,7 +156,11 @@ def _legend(w, s_count):
     cv2.circle(img, (x, LEGEND_H // 2), 6, QUERY_COLOR, 1)
     _put(img, "points being forecast", (x + 12, LEGEND_H // 2 + 5), 0.42)
     x += 195
-    _put(img, "5 predicted futures:", (x, LEGEND_H // 2 + 5), 0.42)
+    if s_count == 1:
+        cv2.circle(img, (x, LEGEND_H // 2), 5, SAMPLE_COLORS[0], -1)
+        _put(img, sample_label or "model prediction", (x + 12, LEGEND_H // 2 + 5), 0.42)
+        return img
+    _put(img, f"{s_count} predicted futures:", (x, LEGEND_H // 2 + 5), 0.42)
     x += 160
     for i in range(s_count):
         cv2.circle(img, (x, LEGEND_H // 2), 5, SAMPLE_COLORS[i % len(SAMPLE_COLORS)], -1)
@@ -191,6 +197,8 @@ def render_demo_video(
     fps: float,
     out_path: str,
     n_show: int = 12,
+    show_3d: bool = True,
+    sample_label: str = None,
     trail_len: int = 10,
     hold_s: float = 3.0,
     playback_fps: float = 15.0,
@@ -228,7 +236,7 @@ def render_demo_video(
     orbit = _Orbit3D(np.concatenate([observed_tracks.reshape(-1, 3)] + [f.reshape(-1, 3) for f in forecast_samples]), w, h)
     cond_bgr = cv2.cvtColor(frames[cond_idx], cv2.COLOR_RGB2BGR)
     cond_dim = (cond_bgr * 0.55).astype(np.uint8)  # dimmed frozen frame reads as deliberate
-    legend = _legend(2 * w, s_count)
+    legend = _legend(2 * w, s_count, sample_label)
 
     header = None
     if caption:
@@ -236,9 +244,12 @@ def render_demo_video(
         _put(header, caption, (14, 22), 0.5)
     head_h = HEADER_H if header is not None else 0
 
+    chart_h = h if show_3d else int(h * 0.62)
+    canvas_h = head_h + h + LEGEND_H + chart_h + TIMELINE_H
+
     writer = None
     for fourcc in ("avc1", "mp4v"):
-        writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*fourcc), playback_fps, (2 * w, 2 * h + LEGEND_H + TIMELINE_H + head_h))
+        writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*fourcc), playback_fps, (2 * w, canvas_h))
         if writer.isOpened():
             break
         writer.release()
@@ -251,28 +262,31 @@ def render_demo_video(
         for _ in range(times * repeat):
             writer.write(canvas)
 
-    def compose(left, right, k_global, flash=0.0):
-        p3d = np.full((h, w, 3), BG, np.uint8)
-        azim = 0.6 + 0.25 * (k_global / max(total - 1, 1)) * 2 * np.pi * 0.35
-        orbit.draw_ground(p3d, azim)
-        k = k_global - cond_idx
-        if k >= 0:
-            ouv = orbit.project(observed_tracks[: min(k + 1, t_obs), show], azim)
-            _trail(p3d, ouv, k, OBSERVED_COLOR, trail_len + 4, radius=2)
-            for s in range(s_count):
-                fuv = orbit.project(forecast_samples[s][: min(k + 1, t_fc), show], azim)
-                _trail(p3d, fuv, k, SAMPLE_COLORS[s % len(SAMPLE_COLORS)], trail_len + 4, radius=2)
-        _put(p3d, "SAME TRACKS IN 3D -- the model predicts metric 3D motion,", (10, 22), 0.42)
-        _put(p3d, "not screen positions (view slowly orbits to show depth)", (10, 40), 0.42)
 
-        chart = _chart_panel(w, h, curves, static_curve, max(k, 0), fps, y_max)
+    def compose(left, right, k_global, flash=0.0):
+        k = k_global - cond_idx
+        if show_3d:
+            p3d = np.full((h, w, 3), BG, np.uint8)
+            azim = 0.6 + 0.25 * (k_global / max(total - 1, 1)) * 2 * np.pi * 0.35
+            orbit.draw_ground(p3d, azim)
+            if k >= 0:
+                ouv = orbit.project(observed_tracks[: min(k + 1, t_obs), show], azim)
+                _trail(p3d, ouv, k, OBSERVED_COLOR, trail_len + 4, radius=2)
+                for s in range(s_count):
+                    fuv = orbit.project(forecast_samples[s][: min(k + 1, t_fc), show], azim)
+                    _trail(p3d, fuv, k, SAMPLE_COLORS[s % len(SAMPLE_COLORS)], trail_len + 4, radius=2)
+            _put(p3d, "SAME TRACKS IN 3D -- the model predicts metric 3D motion,", (10, 22), 0.42)
+            _put(p3d, "not screen positions (view slowly orbits to show depth)", (10, 40), 0.42)
+            bottom = np.concatenate([p3d, _chart_panel(w, chart_h, curves, static_curve, max(k, 0), fps, y_max)], axis=1)
+        else:
+            bottom = _chart_panel(2 * w, chart_h, curves, static_curve, max(k, 0), fps, y_max)
+
         top = np.concatenate([left, right], axis=1)
-        bottom = np.concatenate([p3d, chart], axis=1)
         parts = ([header] if header is not None else []) + [top, legend, bottom, _timeline(2 * w, k_global, cond_idx, total, fps)]
         canvas = np.concatenate(parts, axis=0)
-        cv2.line(canvas, (w, head_h), (w, head_h + 2 * h + LEGEND_H), (90, 88, 86), 1)
+        cv2.line(canvas, (w, head_h), (w, head_h + h + LEGEND_H + (h if show_3d else 0)), (90, 88, 86), 1)
         if flash > 0:
-            cv2.rectangle(canvas, (2, 2), (2 * w - 3, 2 * h + LEGEND_H + TIMELINE_H - 3), SAMPLE_COLORS[0], int(2 + 4 * flash))
+            cv2.rectangle(canvas, (2, 2), (2 * w - 3, canvas.shape[0] - 3), SAMPLE_COLORS[0], int(2 + 4 * flash))
         return canvas
 
     for t in range(cond_idx):
@@ -316,7 +330,8 @@ def render_demo_video(
         _trail(right, observed_uv, k, OBSERVED_COLOR, trail_len, radius=1)
         for s in range(s_count):
             _trail(right, forecast_uv[s], k, SAMPLE_COLORS[s % len(SAMPLE_COLORS)], trail_len)
-        _put(right, "PREDICTED (colors) vs ACTUAL (white), frozen frame", (10, 22))
+        pred_word = "PREDICTED (color)" if s_count == 1 else "PREDICTED (colors)"
+        _put(right, f"{pred_word} vs ACTUAL (white), frozen frame", (10, 22))
         _put(right, f"+{k / fps:.1f}s into the predicted future", (10, h - 12), 0.5, QUERY_COLOR)
 
         last = compose(left, right, cond_idx + k)
@@ -327,11 +342,18 @@ def render_demo_video(
         best = int(np.argmin(fde))
         summary = last.copy()
         box_h = 70
-        y0 = head_h + 2 * h + LEGEND_H - box_h - 8
+        y0 = head_h + h - box_h - 8
         cv2.rectangle(summary, (10, y0), (2 * w - 10, y0 + box_h), (12, 11, 10), -1)
-        _put(summary, f"result at +{(t_cmp - 1) / fps:.1f}s: closest prediction was future #{best + 1}, off by {fde[best]:.1f}cm", (20, y0 + 22), 0.52, SAMPLE_COLORS[best % len(SAMPLE_COLORS)])
-        _put(summary, f"'object never moves' baseline: off by {static_curve[t_cmp - 1]:.1f}cm    worst future: {max(fde):.1f}cm", (20, y0 + 44), 0.46, (200, 200, 200))
-        _put(summary, "prediction used ONE frame; positions are metric 3D (bottom-left view)", (20, y0 + 64), 0.44, (170, 170, 170))
+        if s_count == 1:
+            headline = f"result at +{(t_cmp - 1) / fps:.1f}s: prediction off by {fde[0]:.1f}cm"
+            second = f"'object never moves' baseline: off by {static_curve[t_cmp - 1]:.1f}cm"
+        else:
+            headline = f"result at +{(t_cmp - 1) / fps:.1f}s: closest prediction was future #{best + 1}, off by {fde[best]:.1f}cm"
+            second = f"'object never moves' baseline: off by {static_curve[t_cmp - 1]:.1f}cm    worst future: {max(fde):.1f}cm"
+        _put(summary, headline, (20, y0 + 22), 0.52, SAMPLE_COLORS[best % len(SAMPLE_COLORS)])
+        _put(summary, second, (20, y0 + 44), 0.46, (200, 200, 200))
+        tail = " (bottom-left view)" if show_3d else ""
+        _put(summary, f"prediction used ONE frame; positions are metric 3D{tail}", (20, y0 + 64), 0.44, (170, 170, 170))
         emit(summary, times=max(1, int(round(hold_s * fps))))
 
     writer.release()

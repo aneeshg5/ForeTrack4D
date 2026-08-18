@@ -1,6 +1,6 @@
 import numpy as np
 
-from foretrack.demo_pipeline import detect_likely_cuts, estimate_intrinsics
+from foretrack.pipeline import detect_likely_cuts, estimate_intrinsics
 
 
 def test_estimate_intrinsics_uses_max_dim_as_focal():

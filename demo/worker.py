@@ -6,7 +6,7 @@ from pathlib import Path
 import config
 
 sys.path.insert(0, str(Path(config.REPO_ROOT) / "src"))
-from foretrack.demo_pipeline import run_demo_job  # noqa: E402
+from foretrack.pipeline import run_demo_job  # noqa: E402
 
 POLL_INTERVAL_S = 2.0
 

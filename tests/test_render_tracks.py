@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-from foretrack.viz.render_tracks import project_points, render_forecast_vs_reality_video
+from foretrack.viz.render_tracks import project_points
 
 
 def test_project_points_center_pixel_at_known_depth():
@@ -43,29 +43,6 @@ def _video_fixture(f=20, h=48, w=64, cond_idx=10, t_obs=10, t_fc=14, s=2, n=4):
     return frames, cond_idx, observed, forecast, intrinsics
 
 
-def test_video_render_writes_expected_frame_count(tmp_path):
-    frames, cond_idx, observed, forecast, intrinsics = _video_fixture()
-    fps = 10.0
-    out = tmp_path / "cmp.mp4"
-    render_forecast_vs_reality_video(frames, cond_idx, observed, forecast, intrinsics, fps, str(out), hold_s=1.0)
-    assert out.exists() and out.stat().st_size > 0
-    cap = cv2.VideoCapture(str(out))
-    n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    cap.release()
-    assert n == cond_idx + max(observed.shape[0], forecast.shape[1]) + 10
-    assert (w, h) == (2 * frames.shape[2], frames.shape[1])
-
-
-def test_video_render_forecast_longer_than_observed_holds_last_frame(tmp_path):
-    frames, cond_idx, observed, forecast, intrinsics = _video_fixture(f=12, cond_idx=8, t_obs=4, t_fc=20)
-    out = tmp_path / "cmp.mp4"
-    render_forecast_vs_reality_video(frames, cond_idx, observed, forecast, intrinsics, 10.0, str(out), hold_s=0.0)
-    cap = cv2.VideoCapture(str(out))
-    n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    cap.release()
-    assert n == cond_idx + 20
 
 
 def test_demo_video_composite_layout_and_framecount(tmp_path):
@@ -83,9 +60,3 @@ def test_demo_video_composite_layout_and_framecount(tmp_path):
     assert n == 3 * (10 + 8 + 24 + 5)
 
 
-def test_video_render_tolerates_behind_camera_points(tmp_path):
-    frames, cond_idx, observed, forecast, intrinsics = _video_fixture()
-    observed[:, 0, 2] = -1.0  # one point behind the camera for the whole horizon -> NaN uv
-    out = tmp_path / "cmp.mp4"
-    render_forecast_vs_reality_video(frames, cond_idx, observed, forecast, intrinsics, 10.0, str(out))
-    assert out.exists() and out.stat().st_size > 0

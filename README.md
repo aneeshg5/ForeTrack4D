@@ -8,9 +8,10 @@ pixels.
 ![gelatin box forecast](assets/dexycb_gelatin_box.gif)
 
 *Left: the real video. Right: frozen at the moment of prediction — orange is the model's
-forecast, white is what actually happened. Below: error against the "object never moves"
-baseline, which climbs to 46.7cm while the forecast stays at 7.6cm. DexYCB held-out test split;
-the trace shown is the closest of 5 sampled futures.*
+forecast, white is what actually happened. Below: how far the object travelled, forecast against
+reality, where the flat line at zero is the "object never moves" baseline. Over 2.4s the box moves
+46.7cm and the forecast lands 5.8cm off. DexYCB held-out test split; the trace shown is the
+closest of 5 sampled futures.*
 
 ForeHand4D forecasts **hands** from a single image and names object motion as future work.
 ForeTrack4D is that follow-on: the same diffusion recipe retargeted to objects, using TAPIP3D
@@ -58,12 +59,13 @@ samples become near-identical.
 
 ![foam brick forecast](assets/dexycb_foam_brick.gif)
 
-*A different object and grasp, held-out val split: 8.7cm final error against a 48.5cm baseline.*
+*A different object and grasp, held-out val split: the brick travels 48.5cm and the forecast ends
+8.7cm away from it.*
 
 ![egocentric forecast](assets/h2o_milk_egocentric.gif)
 
 *Same model on a head-mounted camera, where the viewpoint itself moves. H2O held-out test split:
-5.2cm final error against a 12.9cm baseline.*
+12.9cm of real motion over 4.2s, forecast 5.2cm off at the end.*
 
 ## Limitations
 

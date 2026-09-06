@@ -1,0 +1,15 @@
+# Experiment: how much accuracy do our pseudo-labels lose to monocular depth?
+# TAPIP3D is run twice per sequence over identical query points, once on the dataset's
+# sensor depth and once on its own estimated depth, and both are scored against the
+# mesh-derived ground truth. TAPVid-MV (arXiv:2609.01899) reports geometry recovery as the
+# dominant error source in 3D point tracking; this measures that cost on our own data.
+
+tapip3d_python: /home/aneeshg5/foretrack4d/venv_tapip3d/bin/python
+tapip3d_repo: /home/aneeshg5/foretrack4d/third_party/tapip3d
+tapip3d_checkpoint: /home/aneeshg5/foretrack4d/third_party/tapip3d/checkpoints/tapip3d_final.pth
+
+# same gates the real labeling run uses, so accept rate is comparable
+filter:
+  jerk_threshold: 0.084663
+  depth_var_threshold: 0.031315
+  min_visible_frac: 0.15

@@ -105,19 +105,18 @@ class _Orbit3D:
                 cv2.line(img, (int(u0[0]), int(u0[1])), (int(u1[0]), int(u1[1])), (46, 44, 42), 1, cv2.LINE_AA)
 
 
-def _chart_panel(w, h, curves, static_curve, k, fps, y_max):
-    title = ("SCOREBOARD: how far off is the prediction? (cm, lower = better)" if len(curves) == 1
-             else "SCOREBOARD: how far off is each predicted future? (cm, lower = better)")
+def _chart_panel(w, h, curves, truth_curve, k, fps, y_max, err_curves=None):
     img = np.full((h, w, 3), BG, np.uint8)
     ml, mr, mt, mb = 52, 14, 46, 34
     pw, ph = w - ml - mr, h - mt - mb
-    t_max = max(len(static_curve), max(len(c) for c in curves))
-    _put(img, title, (ml, 20), 0.44)
-    _put(img, "measured against where the object's points actually went", (ml, 38), 0.38, (160, 160, 160))
+    t_max = max(len(truth_curve), max(len(c) for c in curves))
+    _put(img, "HOW FAR THE OBJECT MOVED (cm)", (ml, 20), 0.44)
+    _put(img, "the closer the lines, the better the forecast", (ml, 38), 0.38, (160, 160, 160))
     for frac in (0.0, 0.5, 1.0):
         y = int(mt + ph * (1 - frac))
         cv2.line(img, (ml, y), (ml + pw, y), (50, 48, 46), 1)
         _put(img, f"{frac * y_max:.0f}", (10, y + 4), 0.4, (150, 150, 150))
+
     def x_of(t):
         return int(ml + pw * t / max(t_max - 1, 1))
 
@@ -127,23 +126,35 @@ def _chart_panel(w, h, curves, static_curve, k, fps, y_max):
     _put(img, "0s", (ml - 6, h - 12), 0.4, (150, 150, 150))
     _put(img, f"+{(t_max - 1) / fps:.1f}s", (ml + pw - 34, h - 12), 0.4, (150, 150, 150))
 
-    def draw_curve(curve, color, dashed=False):
+    # the zero line is the "object never moves" baseline: no displacement at all
+    y0 = y_of(0.0)
+    for x in range(ml, ml + pw, 8):
+        cv2.line(img, (x, y0), (x + 4, y0), STATIC_COLOR, 1, cv2.LINE_AA)
+    _put(img, "baseline: 'object never moves'", (ml + pw - 200, y0 - 6), 0.38, STATIC_COLOR)
+
+    def draw_curve(curve, color, thick=1):
         upto = min(k + 1, len(curve))
         pts = [(x_of(t), y_of(curve[t])) for t in range(upto) if np.isfinite(curve[t])]
         for i in range(1, len(pts)):
-            if dashed and i % 2 == 0:
-                continue
-            cv2.line(img, pts[i - 1], pts[i], color, 1, cv2.LINE_AA)
+            cv2.line(img, pts[i - 1], pts[i], color, thick, cv2.LINE_AA)
         if pts:
             cv2.circle(img, pts[-1], 3, color, -1)
         return pts[-1] if pts else None
 
-    end = draw_curve(static_curve, STATIC_COLOR, dashed=True)
+    end = draw_curve(truth_curve, OBSERVED_COLOR, 2)
     if end and k > 0.25 * t_max:
-        x = int(np.clip(end[0] - 150, ml + 4, w - 235))
-        _put(img, "baseline: 'object never moves'", (x, max(end[1] - 8, 52)), 0.38, STATIC_COLOR)
+        x = int(np.clip(end[0] - 120, ml + 4, w - 150))
+        _put(img, "actually moved", (x, max(end[1] - 10, 52)), 0.4, OBSERVED_COLOR)
     for i, c in enumerate(curves):
         draw_curve(c, SAMPLE_COLORS[i % len(SAMPLE_COLORS)])
+
+    if err_curves is not None:
+        j = min(k, len(err_curves[0]) - 1)
+        if j >= 0:
+            e = [float(c[j]) for c in err_curves]
+            b = int(np.argmin(e))
+            label = f"off by {e[b]:.1f}cm" if len(e) == 1 else f"closest future off by {e[b]:.1f}cm"
+            _put(img, label, (w - mr - 210, mt - 8), 0.44, SAMPLE_COLORS[b % len(SAMPLE_COLORS)])
     return img
 
 
@@ -229,9 +240,13 @@ def render_demo_video(
     def err(pred, gt):
         return np.linalg.norm(pred - gt, axis=-1).mean(axis=1) * 100
 
-    curves = [err(forecast_samples[s][:t_cmp], observed_tracks[:t_cmp]) for s in range(s_count)]
-    static_curve = err(np.repeat(observed_tracks[:1], t_cmp, axis=0), observed_tracks[:t_cmp])
-    y_max = max(1.0, float(np.nanmax([np.nanmax(c) for c in curves + [static_curve]])) * 1.15)
+    def disp(track):
+        return np.linalg.norm(track - track[:1], axis=-1).mean(axis=1) * 100
+
+    truth_curve = disp(observed_tracks[:t_cmp])
+    curves = [disp(forecast_samples[s][:t_cmp]) for s in range(s_count)]
+    err_curves = [err(forecast_samples[s][:t_cmp], observed_tracks[:t_cmp]) for s in range(s_count)]
+    y_max = max(1.0, float(np.nanmax([np.nanmax(c) for c in curves + [truth_curve]])) * 1.15)
 
     orbit = _Orbit3D(np.concatenate([observed_tracks.reshape(-1, 3)] + [f.reshape(-1, 3) for f in forecast_samples]), w, h)
     cond_bgr = cv2.cvtColor(frames[cond_idx], cv2.COLOR_RGB2BGR)
@@ -277,9 +292,9 @@ def render_demo_video(
                     _trail(p3d, fuv, k, SAMPLE_COLORS[s % len(SAMPLE_COLORS)], trail_len + 4, radius=2)
             _put(p3d, "SAME TRACKS IN 3D -- the model predicts metric 3D motion,", (10, 22), 0.42)
             _put(p3d, "not screen positions (view slowly orbits to show depth)", (10, 40), 0.42)
-            bottom = np.concatenate([p3d, _chart_panel(w, chart_h, curves, static_curve, max(k, 0), fps, y_max)], axis=1)
+            bottom = np.concatenate([p3d, _chart_panel(w, chart_h, curves, truth_curve, max(k, 0), fps, y_max, err_curves)], axis=1)
         else:
-            bottom = _chart_panel(2 * w, chart_h, curves, static_curve, max(k, 0), fps, y_max)
+            bottom = _chart_panel(2 * w, chart_h, curves, truth_curve, max(k, 0), fps, y_max, err_curves)
 
         top = np.concatenate([left, right], axis=1)
         parts = ([header] if header is not None else []) + [top, legend, bottom, _timeline(2 * w, k_global, cond_idx, total, fps)]
@@ -346,10 +361,10 @@ def render_demo_video(
         cv2.rectangle(summary, (10, y0), (2 * w - 10, y0 + box_h), (12, 11, 10), -1)
         if s_count == 1:
             headline = f"result at +{(t_cmp - 1) / fps:.1f}s: prediction off by {fde[0]:.1f}cm"
-            second = f"'object never moves' baseline: off by {static_curve[t_cmp - 1]:.1f}cm"
+            second = f"the object actually moved {truth_curve[t_cmp - 1]:.1f}cm over that time"
         else:
             headline = f"result at +{(t_cmp - 1) / fps:.1f}s: closest prediction was future #{best + 1}, off by {fde[best]:.1f}cm"
-            second = f"'object never moves' baseline: off by {static_curve[t_cmp - 1]:.1f}cm    worst future: {max(fde):.1f}cm"
+            second = f"the object actually moved {truth_curve[t_cmp - 1]:.1f}cm    worst future: {max(fde):.1f}cm"
         _put(summary, headline, (20, y0 + 22), 0.52, SAMPLE_COLORS[best % len(SAMPLE_COLORS)])
         _put(summary, second, (20, y0 + 44), 0.46, (200, 200, 200))
         tail = " (bottom-left view)" if show_3d else ""

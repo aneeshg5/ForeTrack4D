@@ -51,6 +51,21 @@ def lift_query_points(query_uv: np.ndarray, depth_t0: np.ndarray, intrinsics_t0:
     return np.stack([np.zeros_like(z), x, y, z], axis=-1).astype(np.float32)
 
 
+def estimate_depths(
+    video: np.ndarray, intrinsics: np.ndarray, tapip3d_python: str, tapip3d_repo: str,
+    checkpoint: str, work_dir: str,
+):
+    # TAPIP3D's own depth pass (MegaSaM), run without query points; the result carries
+    # both the estimated depth maps and the intrinsics they are expressed in.
+    t = video.shape[0]
+    intrinsics_seq = np.broadcast_to(intrinsics, (t, 3, 3)).astype(np.float32)
+    work = Path(work_dir)
+    work.mkdir(parents=True, exist_ok=True)
+    input_npz = work / "input.npz"
+    np.savez(input_npz, video=video, intrinsics=intrinsics_seq)
+    return np.load(_invoke(input_npz, str(work), tapip3d_python, tapip3d_repo, checkpoint, reuse_result=True))
+
+
 def _write_result_npz(result_path: Path, intrinsics_t0: np.ndarray, out_npz: str) -> None:
     result = np.load(result_path)
     Path(out_npz).parent.mkdir(parents=True, exist_ok=True)
@@ -79,11 +94,9 @@ def run(
     t = video.shape[0]
     intrinsics_seq = np.broadcast_to(intrinsics, (t, 3, 3)).astype(np.float32)
 
-    depth_pass_dir = Path(work_dir) / "depth_pass"
-    depth_pass_dir.mkdir(parents=True, exist_ok=True)
-    depth_input_npz = depth_pass_dir / "input.npz"
-    np.savez(depth_input_npz, video=video, intrinsics=intrinsics_seq)
-    depth_result = np.load(_invoke(depth_input_npz, depth_pass_dir, tapip3d_python, tapip3d_repo, checkpoint, reuse_result=True))
+    depth_result = estimate_depths(
+        video, intrinsics, tapip3d_python, tapip3d_repo, checkpoint, str(Path(work_dir) / "depth_pass")
+    )
 
     depth_h, depth_w = depth_result["depths"][0].shape
     orig_h, orig_w = video.shape[1:3]

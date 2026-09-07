@@ -52,10 +52,11 @@ maximize it. Mean pairwise L2 between motions across the dataset:
 | | predicted | ground truth |
 |---|---|---|
 | DexYCB test | 12.97 | 12.15 |
-| EgoExo4D zero-shot | 0.97 | 33.30 |
+| EgoExo4D zero-shot | 1.00 | 15.78 |
 
-In-domain the model matches real motion spread closely. Out of domain it collapses — all five
-samples become near-identical.
+In-domain the model matches real motion spread closely. Out of domain it collapses: not only do
+the five samples become near-identical, the model predicts nearly the same motion for *every*
+input, meaning the conditioning stops contributing and it falls back to its unconditional prior.
 
 ![foam brick forecast](assets/dexycb_foam_brick.gif)
 
@@ -69,13 +70,24 @@ samples become near-identical.
 
 ## Limitations
 
-- **Out-of-domain, a static baseline wins.** On HoloAssist (5.32 vs 8.49) and EgoExo4D
-  zero-shot (19.76 vs 23.83), predicting no motion beats the model. ForeHand4D's headline
+- **Out-of-domain, a static baseline wins.** On HoloAssist (5.32 vs 8.83) and EgoExo4D
+  zero-shot (9.12 vs 12.73), predicting no motion beats the model. ForeHand4D's headline
   result — imputed labels improving zero-shot generalization — does not reproduce for objects
   at this pseudo-label scale (213 accepted clips).
+- **Pseudo-labels are limited by monocular geometry, not by quantity.** Running the same
+  tracker on sensor depth and on estimated depth over identical query points
+  (`scripts/exp_depth_ablation.py`, n = 20) gives 2.48cm vs 10.53cm ADE against mesh ground
+  truth, worse in 20 of 20 sequences, with a median depth error of 23.9cm. Weighting the loss
+  by measured label reliability was tried and did not help (see `configs/mixed_stage3_reliability.yaml`).
+- **Metric scale comes from per-dataset statistics**, which a genuinely unseen scene does not
+  have. Zero-shot results therefore depend on which dataset's statistics are borrowed.
 - **Diffusion does not beat a plain regressor** on single-sample accuracy. Its measurable
   advantage is the calibrated output distribution, plus best-of-5 when a selector exists.
-- **Small out-of-domain eval sets** (n = 43 and n = 25); those rows are directional only.
+- **Small out-of-domain eval sets** (n = 43 and n = 20); those rows are directional only. The
+  zero-shot reference tracks are themselves machine-generated, and
+  `scripts/audit_reference_tracks.py` rejects 5 of the original 25 sequences as physically
+  impossible for a hand-held object (peak speeds of 3–7 m/s); the numbers above are on the
+  audited subset.
 - **No published-method baseline.** Comparisons are against static, constant velocity, and a
   same-architecture regressor.
 

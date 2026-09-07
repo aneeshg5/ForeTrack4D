@@ -198,7 +198,9 @@ def main():
                 cond, query_xyz_t0 = forward_cond(image_encoder, query_tokenizer, batch, device)
                 tracks = batch["tracks"].to(device)
                 depth = batch["depth"].to(device)
-                mask = batch["frame_mask"].to(device)
+                # pseudo-label clips carry a per-timestep reliability weight (1.0 for GT), so
+                # noisy late-horizon imputed targets contribute proportionally less gradient
+                mask = batch["frame_mask"].to(device).float() * batch["label_weight"].to(device)
                 visibility_gt = batch["visibility"].to(device) if use_visibility_loss else None
                 loss = compute_loss(args.model_type, net, diffusion, cond, query_xyz_t0, tracks, depth, mask, offset_reg_weight=offset_reg_weight, depth_scaled=depth_scaled, visibility_gt=visibility_gt, alpha_vis=alpha_vis)
 

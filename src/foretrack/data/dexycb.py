@@ -87,6 +87,7 @@ class TrackFramesDataset(Dataset):
         augment: bool = False,
         noise_factor: float = 0.4,
         scale_factor: float = 0.25,
+        label_weight: np.ndarray = None,
     ):
         self.n = n
         self.t = t
@@ -94,6 +95,8 @@ class TrackFramesDataset(Dataset):
         self.noise_factor = noise_factor
         self.scale_factor = scale_factor
         self.files = files
+        # per-timestep supervision weight; clean GT labels are trusted uniformly
+        self.label_weight = np.ones(t, dtype=np.float32) if label_weight is None else label_weight[:t].astype(np.float32)
 
         if transl_stats_path is not None:
             self.transl_mean, self.transl_std = load_transl_stats(transl_stats_path)
@@ -172,6 +175,7 @@ class TrackFramesDataset(Dataset):
             "tracks": torch.from_numpy(tracks_norm),
             "visibility": torch.from_numpy(visibility),
             "frame_mask": torch.from_numpy(frame_mask),
+            "label_weight": torch.from_numpy(self.label_weight),
             "depth": torch.from_numpy(depth),
             "object_id": int(d["object_id"]),
         }

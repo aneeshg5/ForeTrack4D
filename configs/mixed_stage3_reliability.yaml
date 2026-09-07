@@ -1,0 +1,31 @@
+# Stage 2 rerun with reliability-weighted pseudo-labels.
+#
+# scripts/exp_depth_ablation.py measured imputed-label error against mesh GT on 20 DexYCB
+# sequences: 2.5cm ADE with sensor depth, 10.5cm with monocular depth, and the gap is almost
+# entirely late-horizon (under 5cm for the first ~1.2s, 28.7cm by 2.3s). Unweighted Stage 2
+# therefore trained on late-horizon targets noisier than the motion itself, which is the
+# likely cause of the zero-shot diversity collapse (0.97 predicted vs 33.30 GT).
+# Each pseudo timestep is now weighted by measured reliability; GT clips stay at 1.0.
+#
+# OUTCOME: null result, kept for the record. Zero-shot was flat (ADE 23.83 -> 23.53, inside seed
+# variance), HoloAssist got 12% worse (8.83 -> 9.87) and DexYCB test 1.7% worse (7.43 -> 7.56).
+# The diversity collapse is not caused by late-horizon label noise: the same checkpoint has
+# healthy multimodality on HoloAssist (8.65cm) and collapses only on EgoExo4D (0.24cm), which
+# is a conditioning generalization failure. pseudo_label_weighting therefore stays off by
+# default elsewhere; this config is the reproduction of the experiment, not a recommendation.
+
+defaults: mixed_stage2_diffusion_lowlr.yaml
+
+# Diffusion Stage 2 retry on the expanded pseudo-label set (170 train / 43 val, up from 68/17),
+# keeping the validated lr=1e-6 fix (mixed_stage2_diffusion_lowlr.yaml -- lr=1e-5 destabilized
+# diffusion specifically). Data-only change otherwise. New ckpt_dir so the
+# previous (smaller-data) result stays available for comparison.
+train:
+  ckpt_dir: /data01/aneeshg5/model_ckpts/foretrack4d/mixed_stage3_reliability
+
+data:
+  pseudo_label_weighting:
+    enabled: true
+    calibration: calibration/pseudo_label_reliability.json
+    tol_cm: 5.0     # full weight while measured label error stays inside this
+    floor: 0.0

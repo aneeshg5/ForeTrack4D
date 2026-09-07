@@ -36,3 +36,27 @@ def normalize_translation(x: np.ndarray, mean: np.ndarray, std: np.ndarray) -> n
 
 def denormalize_translation(x: np.ndarray, mean: np.ndarray, std: np.ndarray) -> np.ndarray:
     return x * std + mean
+
+
+def query_relative_stats(query_xyz_t0: np.ndarray):
+    # centre and scale come from the t=0 query points alone, so an unseen scene needs no
+    # dataset statistics it cannot have. Scheme A (per-dataset mean/std) leaves EgoExo4D at
+    # 2.6-3.9x the training spread with 26% of coords past +/-3; this holds every dataset,
+    # including one never trained on, inside the same support.
+    mean = query_xyz_t0.mean(axis=-2, keepdims=True)
+    # RMS distance to the centroid: a rotation-invariant scale. Averaging the per-axis standard
+    # deviations instead is not invariant, and would turn a rigid rotation of the object into a
+    # shear once normalized.
+    centred = query_xyz_t0 - mean
+    scale = np.sqrt((centred ** 2).sum(axis=-1, keepdims=True).mean(axis=-2, keepdims=True)) + 1e-6
+    return mean, scale
+
+
+def normalize_query_relative(x: np.ndarray, mean: np.ndarray, scale: np.ndarray) -> np.ndarray:
+    return (x - mean) / scale
+
+
+def denormalize_query_relative(x: np.ndarray, mean: np.ndarray, scale: np.ndarray) -> np.ndarray:
+    # metric motion is recoverable because the query points are an input, so their spread is
+    # known at inference time
+    return x * scale + mean

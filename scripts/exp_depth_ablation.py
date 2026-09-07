@@ -5,7 +5,14 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from foretrack.eval.metrics import ade, ade_first_frame_aligned, ade_global_aligned, ade_per_timestep, apd3d, fde
+from foretrack.eval.metrics import (
+    ade,
+    ade_first_frame_aligned,
+    ade_global_aligned,
+    ade_per_timestep,
+    apd3d,
+    fde,
+)
 from foretrack.labeling.filter import accept_clip
 from foretrack.labeling.run_tapip3d import estimate_depths, run_with_query_points
 

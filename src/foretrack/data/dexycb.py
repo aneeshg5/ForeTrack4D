@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from .transforms import normalize_translation
+from .transforms import normalize_translation, query_relative_stats
 
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
@@ -88,6 +88,7 @@ class TrackFramesDataset(Dataset):
         noise_factor: float = 0.4,
         scale_factor: float = 0.25,
         label_weight: np.ndarray = None,
+        norm_mode: str = "dataset",
     ):
         self.n = n
         self.t = t
@@ -95,6 +96,9 @@ class TrackFramesDataset(Dataset):
         self.noise_factor = noise_factor
         self.scale_factor = scale_factor
         self.files = files
+        if norm_mode not in ("dataset", "query_relative"):
+            raise ValueError(f"unknown norm_mode '{norm_mode}', expected 'dataset' or 'query_relative'")
+        self.norm_mode = norm_mode
         # per-timestep supervision weight; clean GT labels are trusted uniformly
         self.label_weight = np.ones(t, dtype=np.float32) if label_weight is None else label_weight[:t].astype(np.float32)
 
@@ -163,8 +167,17 @@ class TrackFramesDataset(Dataset):
 
         depth = tracks[..., 2].copy()  # (T, N), raw metric depth for depth_scaled_l2
 
-        tracks_norm = normalize_translation(tracks, self.transl_mean, self.transl_std)
-        query_xyz_t0_norm = normalize_translation(query_xyz_t0_raw, self.transl_mean, self.transl_std)
+        if self.norm_mode == "query_relative":
+            # centre and scale from the t=0 query points alone: an unseen scene has no dataset
+            # statistics, and per-dataset stats put EgoExo4D coords 43x outside training support
+            mean, scale = query_relative_stats(query_xyz_t0_raw)
+            norm_mean = mean.reshape(3).astype(np.float32)
+            norm_scale = np.repeat(scale.reshape(1), 3).astype(np.float32)
+        else:
+            norm_mean, norm_scale = self.transl_mean, self.transl_std
+
+        tracks_norm = normalize_translation(tracks, norm_mean, norm_scale)
+        query_xyz_t0_norm = normalize_translation(query_xyz_t0_raw, norm_mean, norm_scale)
 
         return {
             "image": image,
@@ -177,6 +190,8 @@ class TrackFramesDataset(Dataset):
             "frame_mask": torch.from_numpy(frame_mask),
             "label_weight": torch.from_numpy(self.label_weight),
             "depth": torch.from_numpy(depth),
+            "norm_mean": torch.from_numpy(np.ascontiguousarray(norm_mean, dtype=np.float32)),
+            "norm_scale": torch.from_numpy(np.ascontiguousarray(norm_scale, dtype=np.float32)),
             "object_id": int(d["object_id"]),
         }
 

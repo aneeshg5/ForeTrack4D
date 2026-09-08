@@ -1,0 +1,16 @@
+defaults: mixed_stage1_kpe_metric.yaml
+
+# Treatment arm. Coordinates are centred on the t=0 query centroid and divided by their RMS
+# distance to it, so normalization needs no per-dataset statistics -- which an unseen scene does
+# not have.
+#
+# Measured motivation (scripts/exp_norm_support.py, scripts/exp_conditioning_probe.py): under
+# per-dataset stats, EgoExo4D query coordinates reach 43x the trained range with 26% of
+# coordinates beyond +/-3, and the denoiser stops using its conditioning there (swap sensitivity
+# 0.052 zero-shot against 0.356 in-domain). Query-relative normalization takes the
+# out-of-support fraction to 0.5%.
+data:
+  norm_mode: query_relative
+
+train:
+  ckpt_dir: /data01/aneeshg5/model_ckpts/foretrack4d/mixed_stage1_query_relative

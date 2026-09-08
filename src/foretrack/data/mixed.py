@@ -28,6 +28,7 @@ def pseudo_label_weight(cfg: dict, t: int):
 
 
 def build_dataset(cfg: dict, split: str, n: int, t: int, augment: bool = False, noise_factor: float = 0.0, scale_factor: float = 0.0):
+    norm_mode = cfg["data"].get("norm_mode", "dataset")
     names = cfg["dataset"].split("+")
     weight = pseudo_label_weight(cfg, t)
     datasets = []
@@ -40,7 +41,7 @@ def build_dataset(cfg: dict, split: str, n: int, t: int, augment: bool = False, 
             cls(
                 ds_cfg["gt_root"], split, n=n, t=t, transl_stats_path=ds_cfg["transl_stats"],
                 augment=augment, noise_factor=noise_factor, scale_factor=scale_factor,
-                label_weight=weight if name in PSEUDO_DATASETS else None,
+                label_weight=weight if name in PSEUDO_DATASETS else None, norm_mode=norm_mode,
             )
         )
     return datasets[0] if len(datasets) == 1 else ConcatDataset(datasets)

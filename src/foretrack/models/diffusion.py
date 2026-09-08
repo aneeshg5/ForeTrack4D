@@ -58,8 +58,8 @@ class GaussianDiffusion:
         sqrt_omac = self._extract(self.sqrt_one_minus_alphas_cumprod, t, x0.shape)
         return sqrt_ac * x0 + sqrt_omac * noise
 
-    def p_sample(self, model, x_t: torch.Tensor, t: torch.Tensor, cond: torch.Tensor, query_xyz_t0: torch.Tensor, t_prev: torch.Tensor = None, eta: float = 1.0) -> torch.Tensor:
-        pred_x0, _ = model(x_t, t, cond, query_xyz_t0)  # visibility logits unused at sampling time
+    def p_sample(self, model, x_t: torch.Tensor, t: torch.Tensor, cond: torch.Tensor, query_xyz_t0: torch.Tensor, t_prev: torch.Tensor = None, eta: float = 1.0, norm_mean: torch.Tensor = None, norm_scale: torch.Tensor = None) -> torch.Tensor:
+        pred_x0, _ = model(x_t, t, cond, query_xyz_t0, norm_mean, norm_scale)  # visibility logits unused at sampling time
         if t_prev is None:
             t_prev = t - 1
         if bool((t_prev < 0).any()):
@@ -79,11 +79,11 @@ class GaussianDiffusion:
         noise = torch.randn_like(x_t)
         return mean + sigma * noise
 
-    def training_losses(self, model, x0: torch.Tensor, cond: torch.Tensor, query_xyz_t0: torch.Tensor, depth: torch.Tensor, mask: torch.Tensor = None, offset_reg_weight: float = 0.0, depth_scaled: bool = True, visibility_gt: torch.Tensor = None, alpha_vis: float = 3.0) -> torch.Tensor:
+    def training_losses(self, model, x0: torch.Tensor, cond: torch.Tensor, query_xyz_t0: torch.Tensor, depth: torch.Tensor, mask: torch.Tensor = None, offset_reg_weight: float = 0.0, depth_scaled: bool = True, visibility_gt: torch.Tensor = None, alpha_vis: float = 3.0, norm_mean: torch.Tensor = None, norm_scale: torch.Tensor = None) -> torch.Tensor:
         bz = x0.shape[0]
         t = torch.randint(0, self.num_steps, (bz,), device=x0.device)
         x_t = self.q_sample(x0, t)
-        pred_x0, vis_logits = model(x_t, t, cond, query_xyz_t0)
+        pred_x0, vis_logits = model(x_t, t, cond, query_xyz_t0, norm_mean, norm_scale)
         loss = depth_scaled_l2(pred_x0, x0, depth, mask, depth_scaled=depth_scaled)
         if offset_reg_weight > 0:
             mean_bias = (pred_x0.mean(dim=0) - x0.mean(dim=0)).pow(2).mean()

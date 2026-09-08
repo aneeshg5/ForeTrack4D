@@ -71,7 +71,9 @@ def forward_cond(image_encoder, query_tokenizer, batch, device):
 
     patch_feats = image_encoder(images)
     cond = query_tokenizer(query_xyz_t0, patch_feats, query_uv, orig_image_size=(orig_h, orig_w))
-    return cond.transpose(0, 1), query_xyz_t0  # (num_cond, B, D), transformer's seqlen-first convention
+    norm_mean = batch["norm_mean"].to(device)
+    norm_scale = batch["norm_scale"].to(device)
+    return cond.transpose(0, 1), query_xyz_t0, norm_mean, norm_scale  # (num_cond, B, D), transformer's seqlen-first convention
 
 
 def make_lr_lambda(warmup_steps: int, total_steps: int, min_lr_ratio: float = 0.01):
@@ -87,15 +89,16 @@ def make_lr_lambda(warmup_steps: int, total_steps: int, min_lr_ratio: float = 0.
     return lr_lambda
 
 
-def compute_loss(model_type, net, diffusion, cond, query_xyz_t0, tracks, depth, mask, offset_reg_weight=0.0, depth_scaled=True, visibility_gt=None, alpha_vis=3.0):
+def compute_loss(model_type, net, diffusion, cond, query_xyz_t0, tracks, depth, mask, offset_reg_weight=0.0, depth_scaled=True, visibility_gt=None, alpha_vis=3.0, norm_mean=None, norm_scale=None):
     if model_type == "diffusion":
 
-        def model_fn(x_noisy, timestep, cond, query_xyz_t0):
-            return net(x_noisy, timestep, cond, query_xyz_t0)
+        def model_fn(x_noisy, timestep, cond, query_xyz_t0, nm=None, ns=None):
+            return net(x_noisy, timestep, cond, query_xyz_t0, nm, ns)
 
         return diffusion.training_losses(
             model_fn, tracks, cond, query_xyz_t0, depth, mask=mask, offset_reg_weight=offset_reg_weight,
             depth_scaled=depth_scaled, visibility_gt=visibility_gt, alpha_vis=alpha_vis,
+            norm_mean=norm_mean, norm_scale=norm_scale,
         )
     else:
         pred, vis_logits = net(cond, query_xyz_t0)
@@ -118,12 +121,12 @@ def validate(image_encoder, query_tokenizer, net, diffusion, model_type, val_loa
         if i >= max_batches:
             break
         with torch.autocast(device_type="cuda" if device == "cuda" else "cpu", dtype=autocast_dtype, enabled=device == "cuda"):
-            cond, query_xyz_t0 = forward_cond(image_encoder, query_tokenizer, batch, device)
+            cond, query_xyz_t0, norm_mean, norm_scale = forward_cond(image_encoder, query_tokenizer, batch, device)
             tracks = batch["tracks"].to(device)
             depth = batch["depth"].to(device)
             mask = batch["frame_mask"].to(device)
             visibility_gt = batch["visibility"].to(device)
-            loss = compute_loss(model_type, net, diffusion, cond, query_xyz_t0, tracks, depth, mask, depth_scaled=depth_scaled, visibility_gt=visibility_gt, alpha_vis=alpha_vis)
+            loss = compute_loss(model_type, net, diffusion, cond, query_xyz_t0, tracks, depth, mask, depth_scaled=depth_scaled, visibility_gt=visibility_gt, alpha_vis=alpha_vis, norm_mean=norm_mean, norm_scale=norm_scale)
         losses.append(loss.item())
     image_encoder.train()
     query_tokenizer.train()
@@ -195,14 +198,14 @@ def main():
             optimizer.zero_grad()
 
             with torch.autocast(device_type="cuda" if device == "cuda" else "cpu", dtype=autocast_dtype, enabled=device == "cuda"):
-                cond, query_xyz_t0 = forward_cond(image_encoder, query_tokenizer, batch, device)
+                cond, query_xyz_t0, norm_mean, norm_scale = forward_cond(image_encoder, query_tokenizer, batch, device)
                 tracks = batch["tracks"].to(device)
                 depth = batch["depth"].to(device)
                 # pseudo-label clips carry a per-timestep reliability weight (1.0 for GT), so
                 # noisy late-horizon imputed targets contribute proportionally less gradient
                 mask = batch["frame_mask"].to(device).float() * batch["label_weight"].to(device)
                 visibility_gt = batch["visibility"].to(device) if use_visibility_loss else None
-                loss = compute_loss(args.model_type, net, diffusion, cond, query_xyz_t0, tracks, depth, mask, offset_reg_weight=offset_reg_weight, depth_scaled=depth_scaled, visibility_gt=visibility_gt, alpha_vis=alpha_vis)
+                loss = compute_loss(args.model_type, net, diffusion, cond, query_xyz_t0, tracks, depth, mask, offset_reg_weight=offset_reg_weight, depth_scaled=depth_scaled, visibility_gt=visibility_gt, alpha_vis=alpha_vis, norm_mean=norm_mean, norm_scale=norm_scale)
 
             loss.backward()
             torch.nn.utils.clip_grad_norm_(params, cfg["train"]["grad_clip"])

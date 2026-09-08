@@ -1,0 +1,14 @@
+defaults: mixed_stage1_visibility_v2.yaml
+
+# Control arm for the normalization experiment. Identical to mixed_stage1_visibility_v2 except
+# that the 2D-projection term now takes its angles in metric space (denoiser.py). That term was
+# computing atan2 on normalized coordinates, where z is centred and crosses zero, so the clamp
+# saturated and the embedding carried little signal -- a latent bug in every run to date.
+#
+# The fix is shared with the query-relative arm so that the only difference between the two is
+# the normalization itself.
+data:
+  norm_mode: dataset
+
+train:
+  ckpt_dir: /data01/aneeshg5/model_ckpts/foretrack4d/mixed_stage1_kpe_metric

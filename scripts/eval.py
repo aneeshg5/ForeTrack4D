@@ -10,9 +10,7 @@ from torch.utils.data import DataLoader
 if os.environ.get("FORETRACK_DISABLE_CUDNN"):
     torch.backends.cudnn.enabled = False
 
-from foretrack.data.dexycb import load_transl_stats
 from foretrack.data.mixed import DATASET_CLASSES
-from foretrack.data.transforms import denormalize_translation
 from foretrack.eval.baselines import constant_velocity, static
 from foretrack.eval.metrics import (
     ade,
@@ -59,11 +57,11 @@ def forward_cond(image_encoder, query_tokenizer, batch, device):
     orig_w = batch["orig_image_size"][1][0].item()
     patch_feats = image_encoder(images)
     cond = query_tokenizer(query_xyz_t0, patch_feats, query_uv, orig_image_size=(orig_h, orig_w))
-    return cond.transpose(0, 1), query_xyz_t0
+    return cond.transpose(0, 1), query_xyz_t0, batch["norm_mean"].to(device), batch["norm_scale"].to(device)
 
 
 @torch.no_grad()
-def sample_diffusion(net, diffusion, cond, query_xyz_t0, shape, device, num_inference_steps=20, eta=1.0):
+def sample_diffusion(net, diffusion, cond, query_xyz_t0, shape, device, num_inference_steps=20, eta=1.0, norm_mean=None, norm_scale=None):
     schedule = list(range(diffusion.num_steps - 1, -1, -diffusion.num_steps // num_inference_steps))
     if schedule[-1] != 0:
         schedule.append(0)
@@ -73,7 +71,7 @@ def sample_diffusion(net, diffusion, cond, query_xyz_t0, shape, device, num_infe
         t = torch.full((bz,), t_val, device=device, dtype=torch.long)
         t_prev_val = schedule[i + 1] if i + 1 < len(schedule) else -1
         t_prev = torch.full((bz,), t_prev_val, device=device, dtype=torch.long)
-        x_t = diffusion.p_sample(net, x_t, t, cond, query_xyz_t0, t_prev=t_prev, eta=eta)
+        x_t = diffusion.p_sample(net, x_t, t, cond, query_xyz_t0, t_prev=t_prev, eta=eta, norm_mean=norm_mean, norm_scale=norm_scale)
     return x_t
 
 
@@ -151,9 +149,8 @@ def main():
     n, t_len = cfg["model"]["num_query_points"], cfg["model"]["num_timesteps"]
     eval_dataset = args.eval_dataset or cfg["dataset"].split("+")[0]
     ds_cfg = cfg["data"]["datasets"][eval_dataset]
-    val_ds = DATASET_CLASSES[eval_dataset](ds_cfg["gt_root"], args.split, n=n, t=t_len, transl_stats_path=ds_cfg["transl_stats"])
+    val_ds = DATASET_CLASSES[eval_dataset](ds_cfg["gt_root"], args.split, n=n, t=t_len, transl_stats_path=ds_cfg["transl_stats"], norm_mode=cfg["data"].get("norm_mode", "dataset"))
     val_loader = DataLoader(val_ds, batch_size=8, shuffle=False, num_workers=2)
-    transl_mean, transl_std = load_transl_stats(ds_cfg["transl_stats"])
     num_batches = args.num_batches if args.num_batches is not None else len(val_loader)
     print(f"val set: {len(val_ds)}, evaluating {num_batches}/{len(val_loader)} batches")
 
@@ -233,8 +230,12 @@ def main():
         visibility = batch["visibility"].numpy()
         intrinsics = batch["intrinsics"].numpy()  # (B, 3, 3), original (uncropped) camera calibration
 
-        gt = denormalize_translation(gt_norm, transl_mean, transl_std)
-        query_xyz_t0 = denormalize_translation(query_xyz_t0_norm, transl_mean, transl_std)
+        # normalization is per-sample under query-relative mode, so denormalize with the batch's
+        # own parameters rather than a single dataset-wide pair
+        nm = batch["norm_mean"].numpy()[:, None, None]
+        ns = batch["norm_scale"].numpy()[:, None, None]
+        gt = gt_norm * ns + nm
+        query_xyz_t0 = query_xyz_t0_norm * ns[:, 0] + nm[:, 0]
 
         for b in range(gt.shape[0]):
             m_b = mask[b]
@@ -247,28 +248,28 @@ def main():
 
         if regressor_net is not None:
             with torch.no_grad():
-                cond, query_xyz_t0_cond = forward_cond(image_encoder_reg, query_tokenizer_reg, batch, device)
+                cond, query_xyz_t0_cond, nm_t, ns_t = forward_cond(image_encoder_reg, query_tokenizer_reg, batch, device)
                 pred_norm, _ = regressor_net(cond, query_xyz_t0_cond)  # visibility logits unused in eval
                 pred_norm = pred_norm.cpu().numpy()
-            pred = denormalize_translation(pred_norm, transl_mean, transl_std)
+            pred = pred_norm * ns[:, None] + nm[:, None]
             for b in range(gt.shape[0]):
                 record("regressor", pred[b], gt[b], mask[b], intrinsics[b, 0, 0], intrinsics[b, 1, 1], visibility[b])
 
         if diffusion_net is not None:
             with torch.no_grad():
-                cond, query_xyz_t0_cond = forward_cond(image_encoder_diff, query_tokenizer_diff, batch, device)
+                cond, query_xyz_t0_cond, nm_t, ns_t = forward_cond(image_encoder_diff, query_tokenizer_diff, batch, device)
             shape = (gt.shape[0], t_len, n, 3)
             samples = []
             for _ in range(args.samples_per_input):
-                s_norm = sample_diffusion(diffusion_net, diffusion, cond, query_xyz_t0_cond, shape, device, args.num_inference_steps, args.eta)
-                samples.append(denormalize_translation(s_norm.cpu().numpy(), transl_mean, transl_std))
+                s_norm = sample_diffusion(diffusion_net, diffusion, cond, query_xyz_t0_cond, shape, device, args.num_inference_steps, args.eta, norm_mean=nm_t, norm_scale=ns_t)
+                samples.append(s_norm.cpu().numpy() * ns[:, None] + nm[:, None])
             samples = np.stack(samples)  # (S, B, T, N, 3)
 
             if query_tokenizer_uncond is not None:
                 with torch.no_grad():
-                    cond_uncond, _ = forward_cond(image_encoder_diff, query_tokenizer_uncond, batch, device)
-                s_uncond_norm = sample_diffusion(diffusion_net, diffusion, cond_uncond, query_xyz_t0_cond, shape, device, args.num_inference_steps, args.eta)
-                pred_uncond = denormalize_translation(s_uncond_norm.cpu().numpy(), transl_mean, transl_std)
+                    cond_uncond, _, _, _ = forward_cond(image_encoder_diff, query_tokenizer_uncond, batch, device)
+                s_uncond_norm = sample_diffusion(diffusion_net, diffusion, cond_uncond, query_xyz_t0_cond, shape, device, args.num_inference_steps, args.eta, norm_mean=nm_t, norm_scale=ns_t)
+                pred_uncond = s_uncond_norm.cpu().numpy() * ns[:, None] + nm[:, None]
 
             for b in range(gt.shape[0]):
                 fx, fy = intrinsics[b, 0, 0], intrinsics[b, 1, 1]

@@ -9,7 +9,7 @@ def test_p_sample_matches_standard_ddpm_posterior_at_single_step():
     bz = 4
     fixed_pred_x0 = torch.randn(bz, 2, 3, 3)
 
-    def model(x_noisy, timestep, cond, query_xyz_t0):
+    def model(x_noisy, timestep, cond, query_xyz_t0, norm_mean=None, norm_scale=None):
         return fixed_pred_x0, None
 
     t = torch.full((bz,), 20, dtype=torch.long)
@@ -41,7 +41,7 @@ def test_p_sample_eta_zero_is_deterministic():
     bz = 4
     fixed_pred_x0 = torch.randn(bz, 2, 3, 3)
 
-    def model(x_noisy, timestep, cond, query_xyz_t0):
+    def model(x_noisy, timestep, cond, query_xyz_t0, norm_mean=None, norm_scale=None):
         return fixed_pred_x0, None
 
     t = torch.full((bz,), 20, dtype=torch.long)
@@ -97,7 +97,7 @@ def test_training_losses_with_mask_end_to_end():
     diffusion = GaussianDiffusion(num_steps=100)
     bz, t_len, n = 2, 5, 3
 
-    def identity_model(x_noisy, timestep, cond, query_xyz_t0):
+    def identity_model(x_noisy, timestep, cond, query_xyz_t0, norm_mean=None, norm_scale=None):
         return torch.zeros_like(x_noisy), None
 
     x0 = torch.randn(bz, t_len, n, 3)
@@ -143,10 +143,10 @@ def test_training_losses_offset_reg_weight_end_to_end():
     query_xyz_t0 = torch.zeros(bz, n, 3)
     depth = torch.ones(bz, t_len, n)
 
-    def biased_model(x_noisy, timestep, cond, query_xyz_t0):
+    def biased_model(x_noisy, timestep, cond, query_xyz_t0, norm_mean=None, norm_scale=None):
         return x0 + 3.0, None
 
-    def unbiased_model(x_noisy, timestep, cond, query_xyz_t0):
+    def unbiased_model(x_noisy, timestep, cond, query_xyz_t0, norm_mean=None, norm_scale=None):
         return x0.clone(), None
 
     torch.manual_seed(1)

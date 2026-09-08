@@ -35,7 +35,12 @@ class TimestepEmbedder(nn.Module):
         return self.mlp(self.pos_encoder.pe[timesteps, 0]).unsqueeze(0)  # (1, B, D)
 
 
-def project_angle_fourier(xyz: torch.Tensor, freq: int = 4) -> torch.Tensor:
+def project_angle_fourier(xyz: torch.Tensor, freq: int = 4, norm_mean: torch.Tensor = None, norm_scale: torch.Tensor = None) -> torch.Tensor:
+    # the angles are only camera rays if they are taken in metric space. Normalized coordinates
+    # are centred, so z crosses zero and the clamp below saturates -- under query-relative
+    # normalization that is the common case, not an edge case.
+    if norm_mean is not None:
+        xyz = xyz * norm_scale[:, None, None] + norm_mean[:, None, None]
     x_angle = torch.atan2(xyz[..., 0], xyz[..., 2].clamp(min=1e-6))
     y_angle = torch.atan2(xyz[..., 1], xyz[..., 2].clamp(min=1e-6))
     angle = torch.stack([x_angle, y_angle], dim=-1)  # (..., 2)
@@ -80,11 +85,11 @@ class TrackDenoiser(nn.Module):
         self.head = TrackHead(latent_dim=latent_dim, n=n)
         self.visibility_head = VisibilityHead(latent_dim=latent_dim, n=n)
 
-    def forward(self, x_noisy: torch.Tensor, timestep: torch.Tensor, cond: torch.Tensor, query_xyz_t0: torch.Tensor) -> tuple:
+    def forward(self, x_noisy: torch.Tensor, timestep: torch.Tensor, cond: torch.Tensor, query_xyz_t0: torch.Tensor, norm_mean: torch.Tensor = None, norm_scale: torch.Tensor = None) -> tuple:
         bz, t_dim, n, _ = x_noisy.shape
 
         coord_tok = self.coord_embed(x_noisy.reshape(bz, t_dim, n * 3))
-        kpe = project_angle_fourier(x_noisy, freq=self.kpe_freq)  # (B, T, N, 2*freq*2)
+        kpe = project_angle_fourier(x_noisy, freq=self.kpe_freq, norm_mean=norm_mean, norm_scale=norm_scale)  # (B, T, N, 2*freq*2)
         kpe_tok = self.kpe_embed(kpe.reshape(bz, t_dim, -1))
         per_timestep_tok = (coord_tok + kpe_tok).transpose(0, 1)  # (T, B, D)
 

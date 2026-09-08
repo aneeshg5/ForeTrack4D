@@ -5,6 +5,8 @@ from foretrack.eval.metrics import (
     ade_first_frame_aligned,
     ade_global_aligned,
     ade_per_timestep,
+    ade_scale_aligned,
+    ade_sim3_aligned,
     apd3d,
     dataset_diversity,
     diversity,
@@ -112,3 +114,30 @@ def test_dataset_diversity_grows_with_spread():
     tight = rng.normal(0, 0.01, (20, 6, 4, 3)).astype(np.float32)
     wide = rng.normal(0, 0.10, (20, 6, 4, 3)).astype(np.float32)
     assert dataset_diversity(wide, n_pairs=200) > 5 * dataset_diversity(tight, n_pairs=200)
+
+
+def test_scale_aligned_removes_pure_scale_error():
+    rng = np.random.default_rng(0)
+    gt = rng.normal(size=(16, 8, 3))
+    pred = gt * 0.4  # forecast with the right shape but badly wrong metric scale
+    assert ade(pred, gt) > 10.0
+    assert ade_scale_aligned(pred, gt) < 1e-6
+
+
+def test_sim3_aligned_removes_rotation_and_scale():
+    rng = np.random.default_rng(1)
+    gt = rng.normal(size=(16, 8, 3))
+    th = 0.6
+    rot = np.array([[np.cos(th), -np.sin(th), 0], [np.sin(th), np.cos(th), 0], [0, 0, 1]])
+    pred = (gt @ rot.T) * 2.5 + np.array([1.0, -2.0, 3.0])
+    assert ade(pred, gt) > 10.0
+    assert ade_sim3_aligned(pred, gt) < 1e-6
+
+
+def test_aligned_variants_leave_real_error_intact():
+    # a forecast that genuinely predicts the wrong motion is not rescued by any alignment
+    rng = np.random.default_rng(2)
+    gt = rng.normal(size=(16, 8, 3))
+    pred = rng.normal(size=(16, 8, 3))
+    assert ade_scale_aligned(pred, gt) > 1.0
+    assert ade_sim3_aligned(pred, gt) > 1.0

@@ -17,6 +17,8 @@ from foretrack.eval.metrics import (
     ade_first_frame_aligned,
     ade_global_aligned,
     ade_per_timestep,
+    ade_scale_aligned,
+    ade_sim3_aligned,
     apd3d,
     dataset_diversity,
     diversity,
@@ -196,6 +198,8 @@ def main():
     fde_results = {k: [] for k in model_names}
     ff_results = {k: [] for k in model_names}  # M-F analog: first-frame aligned
     global_results = {k: [] for k in model_names}  # M-G analog: globally aligned
+    scale_results = {k: [] for k in model_names}  # best isotropic scale: isolates metric scale error
+    sim3_results = {k: [] for k in model_names}  # Umeyama: what remains is shape-of-motion error
     apd3d_results = {k: [] for k in model_names}
     horizon_curves = {k: [] for k in model_names}  # list of (T,) per-sample arrays, nanmean'd at the end
     diversity_results = []
@@ -207,6 +211,8 @@ def main():
         fde_results[name].append(float(np.mean([fde(p, gt_b, mask_b) for p in preds])))
         ff_results[name].append(float(np.mean([ade_first_frame_aligned(p, gt_b, mask_b) for p in preds])))
         global_results[name].append(float(np.mean([ade_global_aligned(p, gt_b, mask_b) for p in preds])))
+        scale_results[name].append(float(np.mean([ade_scale_aligned(p, gt_b, mask_b) for p in preds])))
+        sim3_results[name].append(float(np.mean([ade_sim3_aligned(p, gt_b, mask_b) for p in preds])))
         apd3d_results[name].append(float(np.mean([apd3d(p, gt_b, fx, fy, visibility_b, mask_b) for p in preds])))
         if args.horizon_plot:
             horizon_curves[name].append(np.nanmean(np.stack([ade_per_timestep(p, gt_b, mask_b) for p in preds]), axis=0))
@@ -216,6 +222,8 @@ def main():
         fde_results[name].append(fde(pred, gt_b, mask_b))
         ff_results[name].append(ade_first_frame_aligned(pred, gt_b, mask_b))
         global_results[name].append(ade_global_aligned(pred, gt_b, mask_b))
+        scale_results[name].append(ade_scale_aligned(pred, gt_b, mask_b))
+        sim3_results[name].append(ade_sim3_aligned(pred, gt_b, mask_b))
         apd3d_results[name].append(apd3d(pred, gt_b, fx, fy, visibility_b, mask_b))
         if args.horizon_plot:
             horizon_curves[name].append(ade_per_timestep(pred, gt_b, mask_b))
@@ -295,6 +303,7 @@ def main():
         print(
             f"{k:12s}  ADE: {np.mean(results[k]):7.2f}   FDE: {np.mean(fde_results[k]):7.2f}   "
             f"M-F: {np.mean(ff_results[k]):7.2f}   M-G: {np.mean(global_results[k]):7.2f}   "
+            f"M-S: {np.mean(scale_results[k]):7.2f}   M-Sim3: {np.mean(sim3_results[k]):7.2f}   "
             f"APD3D: {np.mean(apd3d_results[k]):6.2f}   n={len(results[k])}"
         )
     if diversity_results:

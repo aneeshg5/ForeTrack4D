@@ -31,6 +31,38 @@ def ade_global_aligned(pred: np.ndarray, gt: np.ndarray, mask: np.ndarray = None
     return ade(pred + offset, gt, mask)
 
 
+def ade_scale_aligned(pred: np.ndarray, gt: np.ndarray, mask: np.ndarray = None) -> float:
+    # best single isotropic scale about the centroids, translation free. Isolates pure metric
+    # scale error: a single image cannot recover absolute scale, so this is the part of the
+    # error no amount of forecasting skill can remove.
+    p, g = (pred[mask], gt[mask]) if mask is not None else (pred, gt)
+    p, g = p.reshape(-1, 3), g.reshape(-1, 3)
+    pc, gc = p - p.mean(0), g - g.mean(0)
+    denom = (pc ** 2).sum()
+    s = 1.0 if denom < 1e-12 else float((pc * gc).sum() / denom)
+    aligned = (pred - p.mean(0)) * s + g.mean(0)
+    return ade(aligned, gt, mask)
+
+
+def ade_sim3_aligned(pred: np.ndarray, gt: np.ndarray, mask: np.ndarray = None) -> float:
+    # Umeyama similarity fit (scale, rotation, translation), the convention TAPVid-3D aligns
+    # under. What remains after this is genuine shape-of-motion error.
+    p, g = (pred[mask], gt[mask]) if mask is not None else (pred, gt)
+    p, g = p.reshape(-1, 3), g.reshape(-1, 3)
+    pm, gm = p.mean(0), g.mean(0)
+    pc, gc = p - pm, g - gm
+    cov = gc.T @ pc / p.shape[0]
+    u, d, vt = np.linalg.svd(cov)
+    sgn = np.ones(3)
+    if np.linalg.det(u) * np.linalg.det(vt) < 0:
+        sgn[-1] = -1.0  # keep it a rotation, not a reflection
+    r = u @ np.diag(sgn) @ vt
+    var = (pc ** 2).sum() / p.shape[0]
+    s = 1.0 if var < 1e-12 else float((d * sgn).sum() / var)
+    aligned = (pred - pm) @ (s * r).T + gm
+    return ade(aligned, gt, mask)
+
+
 def apd3d(pred: np.ndarray, gt: np.ndarray, fx: float, fy: float, visibility: np.ndarray = None, mask: np.ndarray = None, deltas_2d=(1, 2, 4, 8, 16)) -> float:
     f = (fx + fy) / 2
     err = np.linalg.norm(pred - gt, axis=-1)  # (T, N) meters

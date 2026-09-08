@@ -1,0 +1,21 @@
+defaults: mixed_stage1_kpe_metric.yaml
+
+# Stage 2 on the rebuilt HoloAssist corpus (~3.5k clips against the previous 170), which is the
+# first time this project has actually run the ForeHand4D recipe at the data scale the recipe
+# assumes. The paired baseline is mixed_stage2_smalldata.yaml: same everything, old corpus.
+#
+# Inherits mixed_stage1_kpe_metric so the metric-space projection fix is present in both arms
+# and dataset normalization is used throughout -- query-relative was rejected, see checkpoints.md.
+dataset: dexycb+arctic_ego+h2o+pseudo
+
+data:
+  datasets:
+    pseudo:
+      gt_root: /data01/aneeshg5/pseudo_labels_v2
+      transl_stats: downloads/stats/pseudo_holoassist_v2_transl_stats.json
+
+train:
+  stage: 2
+  epochs: 20
+  lr: 1.0e-6  # validated in mixed_stage2_diffusion_lowlr; 1e-5 destabilizes diffusion at stage 2
+  ckpt_dir: /data01/aneeshg5/model_ckpts/foretrack4d/mixed_stage2_bigdata

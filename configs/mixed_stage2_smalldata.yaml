@@ -1,0 +1,12 @@
+defaults: mixed_stage2_bigdata.yaml
+
+# Paired control: identical to mixed_stage2_bigdata except it points at the original 170-clip
+# corpus, so corpus size is the only difference between the two runs.
+data:
+  datasets:
+    pseudo:
+      gt_root: /data01/aneeshg5/pseudo_labels
+      transl_stats: downloads/stats/pseudo_holoassist_transl_stats.json
+
+train:
+  ckpt_dir: /data01/aneeshg5/model_ckpts/foretrack4d/mixed_stage2_smalldata

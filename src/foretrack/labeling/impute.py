@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 
 import cv2
@@ -20,6 +21,18 @@ from ..data.holoassist import (
 from .filter import accept_clip
 from .run_tapip3d import run_with_query_points
 from .segment import Sam2ObjectSegmenter, sample_query_points_in_mask, save_mask_overlay
+
+
+def prune_work_dir(work_dir: Path) -> None:
+    # TAPIP3D's input video and its dense output run ~475MB per clip and are fully regenerable
+    # from the source video. At a few hundred clips that filled /data01; at the scale the
+    # pseudo-label corpus needs it is the binding constraint, so drop them once the tracks are
+    # extracted. query_frame.jpg is referenced by the label and must survive.
+    for f in work_dir.glob("input*.npz"):
+        f.unlink(missing_ok=True)
+    for d in work_dir.iterdir():
+        if d.is_dir():
+            shutil.rmtree(d, ignore_errors=True)
 
 
 def clip_frame_range(t_start: float, t_end: float) -> tuple:
@@ -178,6 +191,8 @@ def process_clip(
 
     result = np.load(tapip3d_out)
     tracks, visibility = result["tracks"], result["visibility"]
+    if not cfg.get("keep_intermediates", False):
+        prune_work_dir(work_dir)
     if not accept_clip(tracks, visibility, cfg.get("filter", {})):
         return False
 

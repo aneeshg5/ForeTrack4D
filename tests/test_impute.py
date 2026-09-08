@@ -119,3 +119,25 @@ def test_find_nearby_depth_returns_none_when_nothing_in_radius(tmp_path):
     frame, depth = find_nearby_depth(tmp_path, ahat_frame_number, 5, search_radius=3)
     assert frame is None
     assert depth is None
+
+
+def test_prune_work_dir_keeps_referenced_files(tmp_path):
+    from foretrack.labeling.impute import prune_work_dir
+
+    (tmp_path / "input.npz").write_bytes(b"x" * 1000)
+    (tmp_path / "input.result.npz").write_bytes(b"x" * 1000)
+    (tmp_path / "query_frame.jpg").write_bytes(b"j")
+    (tmp_path / "mask_overlay.jpg").write_bytes(b"m")
+    (tmp_path / "tapip3d_result.npz").write_bytes(b"t")
+    nested = tmp_path / "2026-01-01_00-00-00"
+    nested.mkdir()
+    (nested / "input.result.npz").write_bytes(b"x" * 1000)
+
+    prune_work_dir(tmp_path)
+
+    assert (tmp_path / "query_frame.jpg").exists()
+    assert (tmp_path / "mask_overlay.jpg").exists()
+    assert (tmp_path / "tapip3d_result.npz").exists()
+    assert not (tmp_path / "input.npz").exists()
+    assert not (tmp_path / "input.result.npz").exists()
+    assert not nested.exists()

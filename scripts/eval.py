@@ -251,7 +251,7 @@ def main():
                 cond, query_xyz_t0_cond, nm_t, ns_t = forward_cond(image_encoder_reg, query_tokenizer_reg, batch, device)
                 pred_norm, _ = regressor_net(cond, query_xyz_t0_cond)  # visibility logits unused in eval
                 pred_norm = pred_norm.cpu().numpy()
-            pred = pred_norm * ns[:, None] + nm[:, None]
+            pred = pred_norm * ns + nm
             for b in range(gt.shape[0]):
                 record("regressor", pred[b], gt[b], mask[b], intrinsics[b, 0, 0], intrinsics[b, 1, 1], visibility[b])
 
@@ -262,14 +262,14 @@ def main():
             samples = []
             for _ in range(args.samples_per_input):
                 s_norm = sample_diffusion(diffusion_net, diffusion, cond, query_xyz_t0_cond, shape, device, args.num_inference_steps, args.eta, norm_mean=nm_t, norm_scale=ns_t)
-                samples.append(s_norm.cpu().numpy() * ns[:, None] + nm[:, None])
+                samples.append(s_norm.cpu().numpy() * ns + nm)
             samples = np.stack(samples)  # (S, B, T, N, 3)
 
             if query_tokenizer_uncond is not None:
                 with torch.no_grad():
                     cond_uncond, _, _, _ = forward_cond(image_encoder_diff, query_tokenizer_uncond, batch, device)
                 s_uncond_norm = sample_diffusion(diffusion_net, diffusion, cond_uncond, query_xyz_t0_cond, shape, device, args.num_inference_steps, args.eta, norm_mean=nm_t, norm_scale=ns_t)
-                pred_uncond = s_uncond_norm.cpu().numpy() * ns[:, None] + nm[:, None]
+                pred_uncond = s_uncond_norm.cpu().numpy() * ns + nm
 
             for b in range(gt.shape[0]):
                 fx, fy = intrinsics[b, 0, 0], intrinsics[b, 1, 1]

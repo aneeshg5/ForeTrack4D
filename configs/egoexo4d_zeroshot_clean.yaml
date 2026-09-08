@@ -1,0 +1,11 @@
+defaults: egoexo4d_zeroshot_eval.yaml
+
+# Audited zero-shot set. scripts/audit_reference_tracks.py rejected 5 of the original 25
+# sequences as physically impossible (peak speeds 3.1-7.1 m/s, query depths 1.7-3.0m), and those
+# five dominated the reported numbers -- static ADE 19.76 on the full set against 9.12 here.
+# Every zero-shot claim should use this set; the unaudited one is kept only to reproduce
+# superseded numbers.
+data:
+  datasets:
+    egoexo4d_zeroshot:
+      gt_root: /data01/aneeshg5/egoexo4d_tracks_clean

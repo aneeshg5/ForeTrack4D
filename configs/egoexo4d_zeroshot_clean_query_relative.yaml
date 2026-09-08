@@ -1,0 +1,7 @@
+defaults: egoexo4d_zeroshot_clean.yaml
+
+# For checkpoints trained under query-relative normalization: the eval scheme has to match the
+# one the weights were trained with, or predictions are denormalized with parameters they were
+# never normalized by.
+data:
+  norm_mode: query_relative

@@ -1,0 +1,11 @@
+defaults: egoexo4d_zeroshot_clean.yaml
+
+# For checkpoints trained on the rebuilt corpus: zero-shot normalization must use the same
+# HoloAssist statistics the model was trained under, or predictions are denormalized with
+# parameters they were never normalized by. The v2 corpus has visibly wider spread
+# (std [0.214, 0.134, 0.274] against the old [0.136, 0.070, 0.180]), so this is not a
+# cosmetic difference.
+data:
+  datasets:
+    egoexo4d_zeroshot:
+      transl_stats: downloads/stats/pseudo_holoassist_v2_transl_stats.json

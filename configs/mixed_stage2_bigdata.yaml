@@ -16,6 +16,8 @@ data:
 
 train:
   stage: 2
+  # finetune from the Stage 1 control, which carries the metric-space projection fix
+  init_ckpt: /data01/aneeshg5/model_ckpts/foretrack4d/mixed_stage1_kpe_metric/diffusion/epoch25.pt
   epochs: 20
   lr: 1.0e-6  # validated in mixed_stage2_diffusion_lowlr; 1e-5 destabilizes diffusion at stage 2
   ckpt_dir: /data01/aneeshg5/model_ckpts/foretrack4d/mixed_stage2_bigdata

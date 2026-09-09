@@ -123,6 +123,12 @@ def main():
         "cfg['dataset'] (a single-dataset config's only choice).",
     )
     parser.add_argument(
+        "--dump_per_sequence", default=None,
+        help="write per-sequence ADE for every model to this json. Aggregate means over a "
+        "20-sequence zero-shot set hide whether a gap is real; per-sequence values allow a "
+        "paired test.",
+    )
+    parser.add_argument(
         "--ood_gate", action="store_true",
         help="reports an additional 'diffusion_gated' row: falls back to the static baseline "
         "whenever the diffusion model's conditioned and unconditional (disable_query_cond=True) "
@@ -306,6 +312,25 @@ def main():
             f"M-S: {np.mean(scale_results[k]):7.2f}   M-Sim3: {np.mean(sim3_results[k]):7.2f}   "
             f"APD3D: {np.mean(apd3d_results[k]):6.2f}   n={len(results[k])}"
         )
+    if args.dump_per_sequence:
+        import json as _json
+        with open(args.dump_per_sequence, "w") as f:
+            # magnitude of predicted vs true motion, to separate "predicts the wrong path" from
+            # "predicts the right path at the wrong scale"
+            out = {k: results[k] for k in model_names if results[k]}
+            if pred_motions:
+                out["_pred_disp_cm"] = [float(np.linalg.norm(m[-1], axis=-1).mean() * 100) for m in pred_motions]
+                out["_gt_disp_cm"] = [float(np.linalg.norm(m[-1], axis=-1).mean() * 100) for m in gt_motions]
+                # cosine between predicted and true net displacement: separates "wrong scale" from
+                # "wrong direction". An uncorrelated prediction is worse than predicting nothing.
+                cos = []
+                for pm_, gm_ in zip(pred_motions, gt_motions):
+                    a, b = pm_[-1].reshape(-1), gm_[-1].reshape(-1)
+                    na, nb = np.linalg.norm(a), np.linalg.norm(b)
+                    cos.append(float(a @ b / (na * nb)) if na > 1e-9 and nb > 1e-9 else 0.0)
+                out["_disp_cosine"] = cos
+            _json.dump(out, f)
+        print(f"wrote per-sequence ADE to {args.dump_per_sequence}")
     if diversity_results:
         print(f"\nmultimodality (mean pairwise L2 between {args.samples_per_input} samples of the same input, cm): {np.mean(diversity_results):.2f}")
     if len(pred_motions) >= 2:

@@ -1,113 +1,87 @@
 # ForeTrack4D
 
-**Forecasting the 3D motion of a hand-held object from a single RGB image.** Given one frame
-and a set of query points on the object, a conditional diffusion model predicts where those
-points travel in metric 3D over the next several seconds. The output is 3D point tracks, not
-pixels.
+**Task: forecast the future 3D motion of a handheld object from a single RGB frame using a diffusion model over point tracks.**
 
 ![gelatin box forecast](assets/dexycb_gelatin_box.gif)
 
-*Left: the real video. Right: frozen at the moment of prediction — orange is the model's
-forecast, white is what actually happened. Below: how far the object travelled, forecast against
-reality, where the flat line at zero is the "object never moves" baseline. Over 2.4s the box moves
-46.7cm and the forecast lands 5.8cm off. DexYCB held-out test split; the trace shown is the
-closest of 5 sampled futures.*
-
-ForeHand4D forecasts **hands** from a single image and names object motion as future work.
-ForeTrack4D is that follow-on: the same diffusion recipe retargeted to objects, using TAPIP3D
-to pseudo-label in-the-wild video where no 3D ground truth exists.
-
-## How it works
-
-- **Output** — (T, N, 3) tracks: 64 query points, 128 timesteps, in the camera frame at t=0.
-- **Conditioning** — one RGB frame through a ViT, plus a token per query point combining its
-  Fourier-embedded 3D position with the ViT patch feature at its 2D projection. No motion history.
-- **Denoiser** — MDM-style transformer encoder, x0 prediction, cosine schedule, depth-scaled L2.
-  The head predicts an offset from the known t=0 position, so "no motion" is free to represent.
-- **Training** — Stage 1 on mesh-derived ground truth (DexYCB, ARCTIC, H2O); Stage 2 adds
-  TAPIP3D pseudo-labels from HoloAssist, filtered by jerk, depth-variance and visibility gates.
-
-## Results
-
-DexYCB held-out test split, n = 1200. All in cm, lower is better.
-
-| method | ADE | FDE | M-F | M-G |
-|---|---|---|---|---|
-| static (object never moves) | 12.46 | 33.36 | 12.46 | 12.85 |
-| constant velocity* | 12.52 | 33.40 | 12.52 | 12.87 |
-| **regressor** | **7.85** | **14.50** | **7.55** | **7.63** |
-| diffusion, best of 5 samples† | 7.43 | 15.91 | 7.36 | 7.65 |
-| diffusion, single sample | 10.45 | 20.19 | 10.41 | 10.33 |
-
-\* uses the true second frame, which the model never sees. †picks the closest of 5 samples using
-ground truth — an oracle the deterministic baselines do not get.
-
-Error at the final predicted frame drops from **33.4cm to 14.5cm**. M-F and M-G are
-first-frame- and globally-aligned variants, following ForeHand4D: single-image metric depth is
-scale-ambiguous, so alignment separates motion-shape error from absolute placement error.
-
-**Diversity.** A generative forecaster should reproduce the ground-truth spread of motion, not
-maximize it. Mean pairwise L2 between motions across the dataset:
-
-| | predicted | ground truth |
-|---|---|---|
-| DexYCB test | 12.97 | 12.15 |
-| EgoExo4D zero-shot | 1.00 | 15.78 |
-
-In-domain the model matches real motion spread closely. Out of domain it collapses: not only do
-the five samples become near-identical, the model predicts nearly the same motion for *every*
-input, meaning the conditioning stops contributing and it falls back to its unconditional prior.
+*Gelatin box (DexYCB test): moves 46.7 cm, forecast ends 5.8 cm off.*
 
 ![foam brick forecast](assets/dexycb_foam_brick.gif)
 
-*A different object and grasp, held-out val split: the brick travels 48.5cm and the forecast ends
-8.7cm away from it.*
+*Foam brick (DexYCB val): moves 48.5 cm, forecast ends 8.7 cm off.*
 
 ![egocentric forecast](assets/h2o_milk_egocentric.gif)
 
-*Same model on a head-mounted camera, where the viewpoint itself moves. H2O held-out test split:
-12.9cm of real motion over 4.2s, forecast 5.2cm off at the end.*
+*Milk carton, head-mounted moving camera (H2O test): forecast ends 5.2 cm off.*
+
+<sub>Orange: forecast. White: ground truth. Closest of 5 sampled futures.</sub>
+
+## Overview
+
+ForeHand4D forecasts hand motion from a single image and leaves object motion as future work.
+ForeTrack4D retargets that recipe to objects and uses TAPIP3D to pseudo-label in-the-wild video
+that has no 3D ground truth.
+
+| | |
+|---|---|
+| **Input** | One RGB frame, 64 query points on the object |
+| **Output** | `(128, 64, 3)` world-space tracks in the t=0 camera frame |
+| **Model** | MDM-style transformer denoiser, x0 prediction, cosine schedule, depth-scaled L2 |
+| **Conditioning** | ViT image features plus one token per query point (Fourier-embedded 3D position and the patch feature at its projection) |
+| **Training** | Stage 1: mesh-derived ground truth (DexYCB, ARCTIC, H2O). Stage 2: adds filtered TAPIP3D pseudo-labels (HoloAssist) |
+| **Zero-shot eval** | EgoExo4D, never used for training |
+
+## Results
+
+DexYCB held-out test split, n = 1200, cm (lower is better).
+
+| Method | ADE | FDE | M-F | M-G |
+|---|---|---|---|---|
+| Static (object never moves) | 12.46 | 33.36 | 12.46 | 12.85 |
+| Constant velocity* | 12.52 | 33.40 | 12.52 | 12.87 |
+| Regressor | **7.85** | **14.50** | **7.55** | **7.63** |
+| Diffusion, single sample | 10.45 | 20.19 | 10.41 | 10.33 |
+| Diffusion, best of 5† | 7.43 | 15.91 | 7.36 | 7.65 |
+
+\* Uses the true second frame, which the model never sees. † Oracle selection against ground truth.
+M-F / M-G are first-frame- and globally-aligned errors, following ForeHand4D.
+
+**Findings**
+
+- **Final-frame error more than halves** against the no-motion baseline: 33.4 cm to 14.5 cm
+  (regressor) and 15.9 cm (diffusion, best of 5).
+- **The output distribution is calibrated in-domain.** Mean pairwise motion distance is 12.97 cm
+  predicted vs 12.15 cm ground truth.
+- **Query conditioning is necessary.** Image-only conditioning cannot localize the object
+  (`configs/mixed_ablation_no_query_cond.yaml`).
 
 ## Limitations
 
-- **Out-of-domain, a static baseline wins.** On HoloAssist (5.32 vs 8.83) and EgoExo4D
-  zero-shot (9.12 vs 12.73), predicting no motion beats the model. ForeHand4D's headline
-  result — imputed labels improving zero-shot generalization — does not reproduce for objects
-  at this pseudo-label scale (213 accepted clips).
-- **Pseudo-labels are limited by monocular geometry, not by quantity.** Running the same
-  tracker on sensor depth and on estimated depth over identical query points
-  (`scripts/exp_depth_ablation.py`, n = 20) gives 2.48cm vs 10.53cm ADE against mesh ground
-  truth, worse in 20 of 20 sequences, with a median depth error of 23.9cm. Weighting the loss
-  by measured label reliability was tried and did not help (see `configs/mixed_stage3_reliability.yaml`).
-- **Metric scale comes from per-dataset statistics**, which a genuinely unseen scene does not
-  have. Zero-shot results therefore depend on which dataset's statistics are borrowed.
-- **Diffusion does not beat a plain regressor** on single-sample accuracy. Its measurable
-  advantage is the calibrated output distribution, plus best-of-5 when a selector exists.
-- **Small out-of-domain eval sets** (n = 43 and n = 20); those rows are directional only. The
-  zero-shot reference tracks are themselves machine-generated, and
-  `scripts/audit_reference_tracks.py` rejects 5 of the original 25 sequences as physically
-  impossible for a hand-held object (peak speeds of 3–7 m/s); the numbers above are on the
-  audited subset.
-- **No published-method baseline.** Comparisons are against static, constant velocity, and a
-  same-architecture regressor.
+- **Does not generalize out of domain.** On HoloAssist (5.32 vs 8.83 cm) and EgoExo4D zero-shot
+  (9.12 vs 12.73 cm), the static baseline beats the model, and predictions collapse to a
+  near-constant prior. ForeHand4D's pseudo-label gain does not reproduce for objects at this
+  scale (213 accepted clips).
+- **Pseudo-label quality is bounded by monocular depth, not label count.** The same tracker
+  scores 2.48 cm ADE with sensor depth and 10.53 cm with estimated depth (n = 20,
+  `scripts/exp_depth_ablation.py`).
+- **Diffusion does not beat a regressor on single-sample accuracy.** Its advantage is the
+  calibrated distribution and best-of-5 when a selector exists.
+- **Small OOD sets (n = 43, n = 20)**, with machine-generated reference tracks. Treat as
+  directional. No published-method baseline exists for this task.
 
 ## Setup
 
-Python 3.10, torch 2.4.1 / cu124.
-
 ```
 pip install -e ".[dev]"
+scripts/setup_third_party.sh     # clones TAPIP3D and SAM 2
 ```
 
-Three environments are required and must not be unified: the training env (this
-`pyproject.toml`), a `tapip3d` env built per TAPIP3D's README, and a labeling env
-(`pip install -e ".[labeling]"` plus SAM 2 from `third_party/`). `scripts/setup_third_party.sh`
-clones TAPIP3D and SAM 2. MANO model files are required by the dataloaders: register at the
-MANO site, place them under `downloads/model/body_models/mano`, and set `DOWNLOADS_DIR`.
+Python 3.10, torch 2.4.1 / cu124. Three environments are kept separate: training (this repo),
+`tapip3d` (per its README), and labeling (`pip install -e ".[labeling]"`). MANO model files are
+required by the dataloaders; place them under `downloads/model/body_models/mano` and set
+`DOWNLOADS_DIR`.
 
-Set `FORETRACK_DISABLE_CUDNN=1` on nodes where cuDNN handle creation fails.
-
-## Train and eval
+## Train and evaluate
 
 ```
 python scripts/train.py --config configs/mixed_stage1.yaml --model_type diffusion
@@ -115,22 +89,17 @@ python scripts/train.py --config configs/mixed_stage2.yaml --model_type diffusio
 
 python scripts/eval.py --config configs/mixed_stage2_diffusion_lowlr_expanded.yaml \
     --diffusion_ckpt <path> --regressor_ckpt <path> \
-    --eval_dataset dexycb --split test --ood_gate --horizon_plot horizon.png
+    --eval_dataset dexycb --split test --horizon_plot horizon.png
 ```
-
-Data: DexYCB, ARCTIC (ego), H2O for ground truth; HoloAssist for pseudo-labels; EgoExo4D for
-zero-shot evaluation only, never training.
 
 ## License
 
-CC BY-NC 4.0 (see LICENSE), required by code adapted from forehand4d. Per-module provenance is
-in NOTICE.md.
+CC BY-NC 4.0, required by code adapted from ForeHand4D. Per-module provenance is in
+[NOTICE.md](NOTICE.md).
 
 ## Acknowledgements
 
-- ForeHand4D (Prakash, Forsyth, Gupta) — architecture and training recipe.
-  https://github.com/ap229997/forehand4d
-- TAPIP3D (Zhang, Ke, Harley, Fragkiadaki) — 3D point tracking for pseudo-labeling.
-  https://github.com/zbw001/TAPIP3D
-- MDM (Tevet et al.) — diffusion backbone. https://github.com/GuyTevet/motion-diffusion-model
-- SAM 2 (Meta) — object masks. https://github.com/facebookresearch/sam2
+Built on [ForeHand4D](https://github.com/ap229997/forehand4d) (Prakash, Forsyth, Gupta),
+[TAPIP3D](https://github.com/zbw001/TAPIP3D) (Zhang, Ke, Harley, Fragkiadaki),
+[MDM](https://github.com/GuyTevet/motion-diffusion-model) (Tevet et al.), and
+[SAM 2](https://github.com/facebookresearch/sam2) (Meta).

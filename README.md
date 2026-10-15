@@ -1,6 +1,6 @@
 # ForeTrack4D
 
-**Task: forecast the future 3D motion of a handheld object from a single RGB frame using a diffusion model over point tracks.**
+**Task: Forecast the Future 3D Motion of an Object from a Single RGB Frame using Diffusion Models over Point Tracks.**
 
 ![gelatin box forecast](assets/dexycb_gelatin_box.gif)
 
